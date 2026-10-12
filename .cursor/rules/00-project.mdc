@@ -1,0 +1,44 @@
+---
+description: Holiday Dialysis Coordination Portal — stack, layout and non-negotiable rules
+alwaysApply: true
+---
+
+# Holiday Dialysis Coordination Portal
+
+Internal portal for booking holiday dialysis. Clinics submit requests (with MOH/MOD approval attached);
+Internal requests are approved by the receiving network clinic in the portal; External KSA / International requests
+are emailed to the provider by the Coordination Team – International, who record the reply on the same request.
+Source of truth for behaviour: `docs/spec-decisions.md` (and the screen specification it summarises).
+
+## Stack (do not change without being asked)
+- JavaScript, **ES modules only** (`import`/`export`, `"type": "module"`). No TypeScript, no CommonJS.
+- npm workspaces: `backend/` (Node 22, Express 4) and `frontend/` (React 18 + Vite 5, react-router-dom 6).
+- PostgreSQL on Supabase, accessed **only from the backend with the `pg` driver**. No ORM, no query builder,
+  no `@supabase/supabase-js` in the browser. The browser never talks to Supabase directly.
+- Node built-in test runner (`node --test`). No Jest/Vitest unless asked.
+
+## Layout
+- `backend/src/domain/` — pure business rules (statuses, workflow, access, validation, dates, templates).
+  **Dependency-free and isomorphic**: the frontend imports it via the `@domain` alias. Never import Node or npm modules here.
+- `backend/src/services/` — database work and side effects. `backend/src/routes/` — thin Express routers.
+- `backend/db/migrations/NNN_name.sql` — schema. `backend/db/seed.sql` — development data.
+- `frontend/src/pages/` — one file per screen; `frontend/src/components/` — shared UI; `frontend/src/api.js` — fetch wrapper.
+
+## Golden rules
+1. **Security is enforced on the server.** Every request read goes through `canView`/`visibilitySql`; every state change
+   goes through `checkAction` (status + destination type + role/clinic). Hiding a button is never the control.
+2. **Every state change runs in one transaction** via `runAction()` in `services/requests.js`: lock row → check
+   rowVersion → check workflow → write request + `request_status_history` + `audit_event` + notifications → commit →
+   then send emails (`flushEmails`). Don't write status updates anywhere else.
+3. **Audit everything that changes data** (`audit()`), inside the same transaction. Audit/status history/decisions/
+   provider communications/letters are append-only (DB triggers enforce it).
+4. **Parameterised SQL only** (`$1, $2…` or the `params()` helper). Never interpolate user input into SQL.
+5. **Schema changes = a new migration file** (`003_…sql`). Never edit an applied migration.
+6. Patient identifiers are encrypted with pgcrypto (`FIELD_ENCRYPTION_KEY`). Show only masked values in lists,
+   exports, logs and notifications.
+7. Keep user-facing text plain and specific ("Travel end date must be after the start date."), matching existing copy.
+8. When you add behaviour, add/extend a unit test in `backend/test/unit/` for domain logic, and keep `npm test` green.
+
+## Commands
+`npm run dev` (API :4000 + web :5173) · `npm test` · `npm run test:api` (needs a seeded dev DB) ·
+`npm run db:migrate` · `npm run db:seed -- --reset` (dev only) · `npm run build` · `npm start`

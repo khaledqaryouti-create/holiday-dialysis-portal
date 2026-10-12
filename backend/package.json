@@ -1,0 +1,31 @@
+{
+  "name": "@hdp/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "db:migrate": "node db/migrate.js",
+    "db:seed": "node db/seed.js",
+    "storage:setup": "node db/setup-storage.js",
+    "jobs:reminders": "node src/jobs/reminders.js",
+    "test": "node --test \"test/unit/*.test.js\"",
+    "test:api": "node --test --test-concurrency=1 \"test/api/*.test.js\""
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.0",
+    "nodemailer": "^6.9.16",
+    "pdfkit": "^0.15.2",
+    "pg": "^8.13.1"
+  }
+}

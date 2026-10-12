@@ -1,0 +1,44 @@
+---
+description: Business rules for requests — statuses, who can do what, validation. Use when touching requests, workflow, permissions, validation or notifications.
+alwaysApply: false
+---
+
+# Workflow rules (implemented in backend/src/domain — change them there, nowhere else)
+
+## Roles (role_code)
+CLINIC_STAFF (scoped to their clinic via user_clinic_scope) · COORD_INTERNAL · COORD_INTERNATIONAL · IT_ADMIN.
+MOH, MOD and external providers have **no accounts**.
+
+## Visibility (access.js)
+- Draft → creator only.
+- Clinic Staff → requests where their clinic is the requesting clinic, or (Internal only) the receiving clinic.
+- Coordination – Internal → all Internal requests. Coordination – International → all External KSA + International.
+- IT Admin → no request data; Admin Settings only.
+
+## Status flow (workflow.js `RULES`)
+| Action | From | Who | To |
+|---|---|---|---|
+| submit | Draft | creator (Clinic Staff) | Internal → PendingClinicResponse; otherwise → PendingProviderEmail |
+| approve / reject | PendingClinicResponse | Clinic Staff at the receiving clinic (Internal) | Confirmed / Rejected |
+| sendToProvider | PendingProviderEmail | Coordination – International | SentToProviderAwaitingResponse |
+| resendToProvider | SentToProviderAwaitingResponse | Coordination – International | (no change) |
+| recordProviderApproved / Declined | SentToProviderAwaitingResponse | Coordination – International | Confirmed / Rejected |
+| withdraw | any active status | Clinic Staff at the requesting clinic | Withdrawn |
+| complete | Confirmed, after travel end date | the coordination team that owns the destination type | Completed |
+| comment | any non-draft | anyone who can view | — |
+Rejected, Withdrawn, Completed are terminal (DB trigger also blocks changes). Nothing ever returns to Draft.
+
+## Validation (validation.js)
+- National ID / Iqama: exactly 10 digits. Passport: 6–9 letters/digits. MRN: digits only.
+- Travel start not in the past (Asia/Riyadh "today"); end strictly after start; sessions = whole number ≥ 1.
+- Files: PDF/JPG/PNG ≤ 10 MB; MOH/MOD approvals and provider replies also accept EML.
+- Required at submit: MOH approval, medical report, ID copy; MOD approval only when "MOD approval applies" is ticked.
+- Reject/decline reason: 10–500 characters. Confirmed session dates: within requested travel dates ± 2 days.
+
+## SLA / reminders
+`sla_rule` stages: PendingClinicResponse, PendingProviderEmail, SentToProviderAwaitingResponse, Completion (days after
+travel end). Overdue = days on current step > target. `jobs/reminders.js` notifies at most once per reminder frequency.
+
+## Notifications
+Use `notify()` inside the transaction (in-portal row + optional templated email row), and let `runAction` flush emails
+after commit. Template codes live in `notification_template`; merge fields are listed in `MERGE_FIELDS`.

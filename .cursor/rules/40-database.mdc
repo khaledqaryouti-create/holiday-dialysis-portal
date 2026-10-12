@@ -1,0 +1,21 @@
+---
+description: Database and Supabase rules — migrations, naming, RLS, triggers
+globs: backend/db/**
+alwaysApply: false
+---
+
+# Database rules (PostgreSQL / Supabase)
+
+- Add a new file `backend/db/migrations/NNN_short_name.sql`; `npm run db:migrate` applies each file once in a transaction.
+  Never edit or reorder applied migrations. Write migrations so they also run on plain PostgreSQL 14+ (local dev, CI).
+- Naming: snake_case tables/columns matching spec §14 (holiday_dialysis_request, request_status_history, …);
+  uuid PKs for business records, bigserial for logs; `timestamptz` for instants, `date` for business dates.
+- Controlled values are `text` + `CHECK (... IN (...))`, mirrored in `backend/src/domain/constants.js` — change both together.
+- Append-only tables (audit_event, request_status_history, request_decision, provider_communication, generated_letter)
+  have triggers that reject UPDATE/DELETE. Corrections are new rows.
+- Only Draft requests can be deleted; statuses can never return to Draft; terminal statuses can't change (triggers in 002).
+- **Supabase REST lockdown:** every table in `public` has RLS enabled with no policies, so Supabase's anon/authenticated
+  REST API sees nothing. New tables must also `ENABLE ROW LEVEL SECURITY` (add it in the same migration).
+- The backend connects with the Supabase `postgres` role through the pooler. Use the session pooler (5432) or direct
+  connection for migrations.
+- Seed data lives in `seed.sql` and is development-only (fictional people, `.example` emails).

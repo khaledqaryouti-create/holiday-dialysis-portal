@@ -1,0 +1,12 @@
+node_modules/
+.env
+.env.*
+!.env.example
+frontend/dist/
+backend/storage/
+*.log
+.DS_Store
+coverage/
+.vercel
+Sybapase-Pass.txt
+Sybapase connection String.txt

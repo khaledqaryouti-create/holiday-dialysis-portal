@@ -1,0 +1,27 @@
+---
+description: Backend conventions — Express 4 routes, services, pg, errors, transactions
+globs: backend/**/*.js
+alwaysApply: false
+---
+
+# Backend conventions
+
+- Routes are thin: parse input → call one service function → `res.json(...)`. Wrap async handlers with `ah()` from
+  `lib/errors.js` (Express 4 does not catch rejected promises).
+- Throw `AppError` helpers (`validationFailed(fields)`, `notFound()`, `forbidden()`, `conflict()`); never `res.status()`
+  from services. Validation errors return `{ error: { code, message, fields: { field: msg }, step? } }` — the React forms
+  rely on `fields` keys matching input names.
+- Requests that 404 and requests the user can't see return the **same** 404 ("Request not found, or you do not have access to it.").
+- Use `withTx(fn)` for multi-statement writes; for request workflow always use `runAction()` + `transition()`.
+- Optimistic locking: clients send `rowVersion`; `runAction` compares it and returns 409 `STALE`. Bump `row_version`
+  only on real changes to the request (status/fields), not on comments or uploads.
+- `pg` returns DATE columns as `'YYYY-MM-DD'` strings (type parser in `db/pool.js`) — compare dates as strings, never `new Date('YYYY-MM-DD')`.
+- Business "today" = `todayIn(config.timeZone)` (Asia/Riyadh). Timestamps are stored UTC (`timestamptz`).
+- Encrypt identifiers in SQL: `pgp_sym_encrypt($v, $key)`; lookups by `encode(hmac(upper($v), $key, 'sha256'), 'hex')`.
+  Pass `config.fieldKey` as a parameter; never log it.
+- Files: bytes go to `services/storage.js` (`local` or private Supabase bucket); DB holds metadata + `storage_key` + SHA-256.
+- Email: `services/mailer.js` (`MAIL_TRANSPORT=log` prints instead of sending). Provider emails are sent inside the
+  transaction so a failed send rolls the status back.
+- New endpoint checklist: route (auth/role guard) → service (permission check, validation, tx, audit) → unit test for
+  any new domain rule → `test/api` case if it is a workflow step → document it in README "API" table.
+- Writes require header `X-Requested-With: hdp` (CSRF guard in `middleware/auth.js`).

@@ -1,0 +1,21 @@
+---
+description: Frontend conventions — React 18 + Vite, styling tokens, API usage
+globs: frontend/**/*.{js,jsx,css}
+alwaysApply: false
+---
+
+# Frontend conventions
+
+- Function components and hooks only. Plain JSX (`.jsx`), ES modules. No new UI/CSS frameworks (no Tailwind, MUI…)
+  and no state libraries — `useState`/`useEffect`, `useLoad()` and the contexts in `auth.jsx` / `components/ui.jsx` are enough.
+- Call the API only through `src/api.js` (`api.get/post/patch/put/del/upload`, `qs()`); it adds the CSRF header and
+  turns errors into `ApiError { status, code, fields, step }`. Show `fields` next to inputs with `<FieldError>`.
+- Import shared rules from `@domain/...` (constants, validation, dates, templates). Never re-implement a rule in the UI.
+- What a user can do on a request comes from the API's `allowedActions` / `pendingActions` — render panels from those,
+  never from role checks alone.
+- Confirmations use `useUi().confirm({...})` (returns a promise); feedback uses `useUi().toast(msg, 'bad'?)`. No `alert()`.
+- Styling: `src/styles.css` tokens (`--bg`, `--surface`, `--fg`, `--brand`, `--accent`, status `--*-bg/--*-fg`) with
+  light + dark values. Reuse existing classes (`card`, `btn primary|brand|danger|ghost`, `pill t-*`, `form-grid`, `kpi`, `table-wrap`).
+  Orange (`--accent`) is for the primary next action only.
+- Mask identifiers in lists (`patientShort`, `mrnMasked` come from the API). Dates via `lib/format.js` (`fmtTS`, `fmtRange`).
+- Accessibility: every input has a label, icon-only buttons have `aria-label`, keyboard works for rows and dialogs.
