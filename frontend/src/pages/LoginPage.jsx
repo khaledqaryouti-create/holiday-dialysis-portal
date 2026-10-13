@@ -1,11 +1,10 @@
 // Sign-in screen: shows whichever methods IT switched on in Admin Settings → Sign-in & Directory
-// (Microsoft, user name + password for directory and/or local accounts) plus the development list when AUTH_MODE=dev.
+// (Microsoft, user name + password for directory and/or local accounts).
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { Icon } from '../components/Icon.jsx';
-import { ErrorBox, FieldError, initials } from '../components/ui.jsx';
-import { ROLE_LABELS } from '@domain/constants.js';
+import { ErrorBox, FieldError } from '../components/ui.jsx';
 import { hasContact, telHref } from '@domain/branding.js';
 import { useBranding } from '../branding.jsx';
 import LoginVisual from '../components/LoginVisual.jsx';
@@ -20,10 +19,9 @@ function MicrosoftLogo() {
 }
 
 export default function LoginPage() {
-  const { options = {}, devLogin, passwordLogin } = useAuth();
+  const { options = {}, passwordLogin } = useAuth();
   const brand = useBranding();
   const showContact = brand.enabled && brand.showContactOnLogin && hasContact(brand.contact);
-  const [users, setUsers] = useState([]);
   const [error, setError] = useState(() => {
     const m = new URLSearchParams(window.location.search).get('loginError');
     return m ? { message: m } : null;
@@ -40,8 +38,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (window.location.search.includes('loginError')) window.history.replaceState(null, '', window.location.pathname);
-    if (options.dev) api.get('/auth/dev-users').then((r) => setUsers(r.users)).catch(() => {});
-  }, [options.dev]);
+  }, []);
   const showPasswordForm = options.password || options.dev;
   useEffect(() => {
     if (!showPasswordForm) return;
@@ -51,8 +48,6 @@ export default function LoginPage() {
     }).catch(() => {});
   }, [showPasswordForm]);
 
-  const order = ['CLINIC_STAFF', 'COORD_INTERNAL', 'COORD_INTERNATIONAL', 'IT_ADMIN'];
-  const sorted = [...users].sort((a, b) => order.indexOf(a.roles[0]) - order.indexOf(b.roles[0]) || a.name.localeCompare(b.name));
   const nothing = !options.microsoft && !options.password && !options.dev;
 
   async function submit(e) {
@@ -135,22 +130,6 @@ export default function LoginPage() {
         </div>
         <footer className="lf-foot">© {new Date().getFullYear()} {owner || 'Holiday Dialysis Coordination Portal'}</footer>
       </section>
-
-      {options.dev && (
-        <section className="login-dev">
-          <h2 className="login-dev-h">Development sign-in</h2>
-          <p className="muted small">Pick a sample account. This list disappears when AUTH_MODE=standard.</p>
-          <div className="users">
-            {sorted.map((u) => (
-              <button key={u.id} className="ucard" disabled={!!busy}
-                onClick={async () => { setBusy(u.id); try { await devLogin(u.id); } catch (e) { setError(e); setBusy(null); } }}>
-                <span className="av">{initials(u.name)}</span>
-                <span><b>{u.name}</b><small>{u.roles.map((r) => ROLE_LABELS[r]).join(', ')}{u.clinics.length ? <><br />{u.clinics.map((c) => c.name).join(', ')}</> : null}</small></span>
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
     </div>
   );
 }
