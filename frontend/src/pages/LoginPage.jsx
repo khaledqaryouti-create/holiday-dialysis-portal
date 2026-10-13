@@ -1,88 +1,156 @@
+// Sign-in screen: shows whichever methods IT switched on in Admin Settings → Sign-in & Directory
+// (Microsoft, user name + password for directory and/or local accounts) plus the development list when AUTH_MODE=dev.
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { Icon } from '../components/Icon.jsx';
-import { ErrorBox } from '../components/ui.jsx';
-import { DEV_SAMPLE_PASSWORD } from '@domain/constants.js';
+import { ErrorBox, FieldError, initials } from '../components/ui.jsx';
+import { ROLE_LABELS } from '@domain/constants.js';
+import { hasContact, telHref } from '@domain/branding.js';
+import { useBranding } from '../branding.jsx';
+import LoginVisual from '../components/LoginVisual.jsx';
+
+function MicrosoftLogo() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 21 21" aria-hidden="true">
+      <rect x="1" y="1" width="9" height="9" fill="#f25022" /><rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+      <rect x="1" y="11" width="9" height="9" fill="#00a4ef" /><rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+    </svg>
+  );
+}
 
 export default function LoginPage() {
-  const { mode, login } = useAuth();
+  const { options = {}, devLogin, passwordLogin } = useAuth();
+  const brand = useBranding();
+  const showContact = brand.enabled && brand.showContactOnLogin && hasContact(brand.contact);
+  const [users, setUsers] = useState([]);
+  const [error, setError] = useState(() => {
+    const m = new URLSearchParams(window.location.search).get('loginError');
+    return m ? { message: m } : null;
+  });
+  const [busy, setBusy] = useState(null);
+  const [form, setForm] = useState(() => {
+    let clinicId = '';
+    try { clinicId = localStorage.getItem('hdp.lastClinic') || ''; } catch { /* storage blocked */ }
+    return { username: '', password: '', clinicId };
+  });
   const [clinics, setClinics] = useState([]);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [clinicId, setClinicId] = useState('');
-  const [error, setError] = useState(null);
-  const [busy, setBusy] = useState(false);
+  const [fieldErr, setFieldErr] = useState({});
+  const [showPw, setShowPw] = useState(false);
 
   useEffect(() => {
-    if (mode !== 'dev') return;
-    api.get('/auth/clinics').then((r) => setClinics(r.clinics)).catch(setError);
-  }, [mode]);
+    if (window.location.search.includes('loginError')) window.history.replaceState(null, '', window.location.pathname);
+    if (options.dev) api.get('/auth/dev-users').then((r) => setUsers(r.users)).catch(() => {});
+  }, [options.dev]);
+  const showPasswordForm = options.password || options.dev;
+  useEffect(() => {
+    if (!showPasswordForm) return;
+    api.get('/auth/clinics').then((r) => {
+      setClinics(r.clinics);
+      setForm((f) => (f.clinicId && !r.clinics.some((c) => c.id === f.clinicId) ? { ...f, clinicId: '' } : f));
+    }).catch(() => {});
+  }, [showPasswordForm]);
 
-  const submit = async (e) => {
+  const order = ['CLINIC_STAFF', 'COORD_INTERNAL', 'COORD_INTERNATIONAL', 'IT_ADMIN'];
+  const sorted = [...users].sort((a, b) => order.indexOf(a.roles[0]) - order.indexOf(b.roles[0]) || a.name.localeCompare(b.name));
+  const nothing = !options.microsoft && !options.password && !options.dev;
+
+  async function submit(e) {
     e.preventDefault();
-    setBusy(true);
-    setError(null);
+    const fe = {};
+    if (!form.username.trim()) fe.username = 'Enter your user name.';
+    if (!form.password) fe.password = 'Enter your password.';
+    setFieldErr(fe);
+    if (Object.keys(fe).length) return;
+    setBusy('pw'); setError(null);
     try {
-      await login(email, password, clinicId);
+      await passwordLogin(form.username.trim(), form.password, form.clinicId);
+      try { if (form.clinicId) localStorage.setItem('hdp.lastClinic', form.clinicId); } catch { /* storage blocked */ }
     } catch (err) {
-      setError(err);
-      setBusy(false);
+      setBusy(null);
+      if (err.fields?.clinic) { setFieldErr({ clinic: err.fields.clinic }); return; } // password was right; only the clinic needs fixing
+      setError(err); setForm((f) => ({ ...f, password: '' }));
     }
-  };
+  }
+
+  const owner = brand.enabled && brand.companyName ? brand.companyName : null;
+  const help = showContact && (brand.contact.phone || brand.contact.email) ? brand.contact : null;
 
   return (
-    <div className="login">
-      <section className="login-l">
-        <div>
-          <div className="brand"><span className="mark"><Icon name="drop" /></span><span>Holiday Dialysis<br /><b>Coordination Portal</b></span></div>
-          <h1>Book dialysis for patients who travel, without the email chains.</h1>
-          <p>Clinics submit one request with MOH approval attached. Network clinics answer in the portal; the coordination team handles external and international providers by email and records the reply on the same request.</p>
-        </div>
-        <div className="login-flow">
-          <div><i>1</i>Clinic submits request with approvals</div>
-          <div><i>2</i>Receiving clinic or coordination team responds</div>
-          <div><i>3</i>Confirmation letter issued, request completed after travel</div>
-        </div>
-      </section>
-      <section className="login-r">
-        {mode === 'entra' ? (
-          <>
-            <div><h2 style={{ fontSize: '1.4rem' }}>Sign in</h2><p className="muted" style={{ marginTop: 6 }}>Use your organisation account.</p></div>
-            <a className="btn brand" href="/api/auth/entra/login">Sign in with Microsoft</a>
-            <p className="small muted">Authorised staff only. Five failed attempts lock your account.</p>
-          </>
-        ) : (
-          <>
-            <div>
-              <h2 style={{ fontSize: '1.4rem' }}>Sign in</h2>
-              <p className="muted" style={{ marginTop: 6 }}>Use your work email, password, and clinic. The home clinic submits a request. The receiving clinic signs in at its own clinic to confirm it.</p>
-            </div>
-            <ErrorBox error={error} />
-            <form className="stack" style={{ maxWidth: 420 }} onSubmit={submit}>
-              <div className="f">
-                <label htmlFor="login-email">Email</label>
-                <input id="login-email" className="input" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />
-              </div>
-              <div className="f">
-                <label htmlFor="login-password">Password</label>
-                <input id="login-password" className="input" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
-              </div>
-              <div className="f">
-                <label htmlFor="login-clinic">Clinic</label>
-                <select id="login-clinic" className="select" required value={clinicId} onChange={(e) => setClinicId(e.target.value)}>
-                  <option value="">Choose a clinic</option>
-                  {clinics.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </div>
-              <button className="btn brand" type="submit" disabled={busy || !clinicId}>{busy ? 'Signing in…' : 'Sign in'}</button>
+    <div className="login2">
+      <section className="login2-brand"><LoginVisual b={brand} /></section>
+
+      <section className="login2-form">
+        <div className="lf">
+          <div>
+            <h2 className="lf-title">{brand.signInTitle || 'Sign in'}</h2>
+            <p className="lf-sub">{brand.signInSubtitle || `${brand.portalTitle} for authorised ${owner ? `${owner} ` : ''}staff.`}</p>
+          </div>
+          <ErrorBox error={error} />
+
+          {options.microsoft && (
+            <a className="btn block lf-ms" href="/api/auth/microsoft/login" onClick={() => setBusy('ms')}>
+              {busy === 'ms' ? <span className="spinner" /> : <MicrosoftLogo />}{options.microsoftLabel || 'Sign in with Microsoft'}
+            </a>
+          )}
+          {options.microsoft && showPasswordForm && <div className="lf-or"><span>or use your user name</span></div>}
+
+          {showPasswordForm && (
+            <form className="lf-form" onSubmit={submit} noValidate>
+              <div className="f"><label htmlFor="li-user">User name</label>
+                <div className="input-ic"><Icon name="user" />
+                  <input id="li-user" className={`input ${fieldErr.username ? 'err' : ''}`} autoComplete="username" autoCapitalize="none" spellCheck={false}
+                    value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} placeholder={options.usernameHint} /></div>
+                <FieldError msg={fieldErr.username} /></div>
+              <div className="f"><label htmlFor="li-pw">Password</label>
+                <div className="input-ic"><Icon name="lock" />
+                  <input id="li-pw" type={showPw ? 'text' : 'password'} className={`input ${fieldErr.password ? 'err' : ''}`} autoComplete="current-password"
+                    value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+                  <button type="button" className="reveal" onClick={() => setShowPw(!showPw)} aria-label={showPw ? 'Hide password' : 'Show password'} aria-pressed={showPw}><Icon name={showPw ? 'eyeoff' : 'eye'} /></button></div>
+                <FieldError msg={fieldErr.password} /></div>
+              <div className="f"><label htmlFor="li-clinic">Clinic</label>
+                <div className="input-ic"><Icon name="building" />
+                  <select id="li-clinic" className={`input ${fieldErr.clinic ? 'err' : ''}`} value={form.clinicId}
+                    onChange={(e) => { setForm({ ...form, clinicId: e.target.value }); setFieldErr((x) => ({ ...x, clinic: undefined })); }}
+                    aria-describedby="li-clinic-help">
+                    <option value="">Choose a clinic</option>
+                    {clinics.map((c) => <option key={c.id} value={c.id}>{c.name}{c.city && !c.name.includes(c.city) ? ` (${c.city})` : ''}</option>)}
+                  </select></div>
+                <span id="li-clinic-help" className="lf-help">The clinic you are working at. Coordination and IT staff can leave this empty.</span>
+                <FieldError msg={fieldErr.clinic} /></div>
+              <button className="btn block lf-submit" type="submit" disabled={!!busy}>{busy === 'pw' ? <span className="spinner" /> : null}Sign in</button>
             </form>
-            {import.meta.env.DEV && (
-              <div className="sso-note"><Icon name="shield" /><span>Sample accounts use the password {DEV_SAMPLE_PASSWORD}. Laila Al-Harbi signs in at Riyadh North Clinic. Omar Khan signs in at Jeddah Central Clinic.</span></div>
-            )}
-          </>
-        )}
+          )}
+
+          {nothing && <div className="banner warn"><Icon name="alert" /><span>No sign-in method is switched on. IT can restore access with <span className="mono">npm run auth:set-password -- their.email@company.com</span> on the server.</span></div>}
+
+          <p className="lf-trouble">Trouble signing in?{' '}
+            {help
+              ? <>{help.phone && <a href={telHref(help.phone)} dir="ltr">{help.phone}</a>}{help.phone && help.email && ' or '}{help.email && <a href={`mailto:${help.email}`}>{help.email}</a>}</>
+              : 'Contact the IT Service Desk.'}</p>
+
+          {brand.showSignInNote !== false && (
+            <div className="lf-note"><Icon name="shield" size={16} /><span>{brand.signInNote || 'Five wrong passwords in a row lock the account for a while. Every sign-in is recorded.'}</span></div>
+          )}
+        </div>
+        <footer className="lf-foot">© {new Date().getFullYear()} {owner || 'Holiday Dialysis Coordination Portal'}</footer>
       </section>
+
+      {options.dev && (
+        <section className="login-dev">
+          <h2 className="login-dev-h">Development sign-in</h2>
+          <p className="muted small">Pick a sample account. This list disappears when AUTH_MODE=standard.</p>
+          <div className="users">
+            {sorted.map((u) => (
+              <button key={u.id} className="ucard" disabled={!!busy}
+                onClick={async () => { setBusy(u.id); try { await devLogin(u.id); } catch (e) { setError(e); setBusy(null); } }}>
+                <span className="av">{initials(u.name)}</span>
+                <span><b>{u.name}</b><small>{u.roles.map((r) => ROLE_LABELS[r]).join(', ')}{u.clinics.length ? <><br />{u.clinics.map((c) => c.name).join(', ')}</> : null}</small></span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

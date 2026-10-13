@@ -20,8 +20,14 @@ alwaysApply: false
 - Encrypt identifiers in SQL: `pgp_sym_encrypt($v, $key)`; lookups by `encode(hmac(upper($v), $key, 'sha256'), 'hex')`.
   Pass `config.fieldKey` as a parameter; never log it.
 - Files: bytes go to `services/storage.js` (`local` or private Supabase bucket); DB holds metadata + `storage_key` + SHA-256.
-- Email: `services/mailer.js` (`MAIL_TRANSPORT=log` prints instead of sending). Provider emails are sent inside the
+- Email: always send through `sendMail()` in `services/mailer.js`. It uses Admin Settings → Email (SMTP) (`email_settings`,
+  password encrypted, 30 s cache — call `invalidateMailSettings()` after changes) and falls back to `.env` `MAIL_TRANSPORT`.
+  Explain failures with `explainSmtpError()` from `lib/smtp.js`; never log or return the SMTP password. Provider emails are sent inside the
   transaction so a failed send rolls the status back.
 - New endpoint checklist: route (auth/role guard) → service (permission check, validation, tx, audit) → unit test for
   any new domain rule → `test/api` case if it is a workflow step → document it in README "API" table.
 - Writes require header `X-Requested-With: hdp` (CSRF guard in `middleware/auth.js`).
+- Sign-in lives in `services/authentication.js` (local scrypt passwords, LDAP via `lib/ldap.js`, Microsoft OIDC via
+  `lib/oidc.js`) and settings in `services/authSettings.js`. Never log passwords, bind passwords, client secrets or
+  tokens; always build LDAP filters with `buildLdapUserFilter()` (escapes input); never allow an empty LDAP password
+  (anonymous bind). Failed sign-ins return the same generic message whether or not the user exists.

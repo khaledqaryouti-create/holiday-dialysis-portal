@@ -29,7 +29,7 @@ function cleanUserInput(b, { requireAll, requirePassword = requireAll }) {
   return { name, email, roles, clinicIds: roles.includes(ROLES.CLINIC_STAFF) ? clinicIds : [], password: password || null };
 }
 
-async function replaceAssignments(c, userId, roles, clinicIds) {
+export async function replaceAssignments(c, userId, roles, clinicIds) {
   // End-date removed assignments (keeps history for access reviews) and add new ones.
   await c.query(
     `UPDATE user_role SET effective_to = current_date - 1

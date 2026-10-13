@@ -5,12 +5,12 @@ import { ROLES } from '@domain/constants.js';
 const AuthCtx = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [state, setState] = useState({ loading: true, user: null, unread: 0, mode: 'dev' });
+  const [state, setState] = useState({ loading: true, user: null, unread: 0, mode: 'dev', options: { dev: true } });
 
   const refresh = useCallback(async () => {
     try {
       const [cfg, me] = await Promise.all([api.get('/auth/config'), api.get('/auth/me').catch(() => null)]);
-      setState({ loading: false, user: me?.user || null, unread: me?.unread || 0, mode: cfg.mode });
+      setState({ loading: false, user: me?.user || null, unread: me?.unread || 0, mode: cfg.mode, options: cfg.options || { dev: cfg.mode === 'dev' } });
     } catch {
       setState((s) => ({ ...s, loading: false, user: null }));
     }
@@ -26,8 +26,9 @@ export function AuthProvider({ children }) {
   const value = {
     ...state,
     refresh,
-    async login(email, password, clinicId) { await api.post('/auth/login', { email, password, clinicId }); await refresh(); },
-    async logout() { await api.post('/auth/logout'); setState((s) => ({ ...s, user: null, unread: 0 })); },
+    async devLogin(userId) { await api.post('/auth/dev-login', { userId }); await refresh(); },
+    async passwordLogin(username, password, clinicId = '') { await api.post('/auth/login', { username, password, clinicId }); await refresh(); },
+    async logout() { await api.post('/auth/logout'); await refresh(); }, // refresh: sign-in options may have changed
     setUnread: (n) => setState((s) => ({ ...s, unread: n })),
   };
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;

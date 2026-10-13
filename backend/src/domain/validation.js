@@ -90,7 +90,6 @@ export function validateFile(docType, fileName, size) {
   return null;
 }
 
-/** Development sign-in password. Empty is allowed only when the caller is not replacing it. */
 export function validatePassword(password, { required = false } = {}) {
   const t = password == null ? '' : String(password);
   if (!t) return required ? 'Enter a password of at least 8 characters.' : null;
@@ -128,4 +127,41 @@ export function initialsOf(name) {
 export function shortName(name) {
   const p = String(name || '').split(/\s+/).filter(Boolean);
   return p.length > 1 ? `${p[0]} ${p[p.length - 1][0]}.` : p[0] || '';
+}
+
+/** SMTP security modes: 'ssl' = implicit TLS (usually port 465), 'starttls' = upgrade (usually 587), 'none' = plain (25, internal relays only). */
+export const SMTP_SECURITY = Object.freeze({
+  ssl: { label: 'SSL/TLS (implicit)', defaultPort: 465 },
+  starttls: { label: 'STARTTLS', defaultPort: 587 },
+  none: { label: 'None (unencrypted)', defaultPort: 25 },
+});
+
+/**
+ * Validate the Email (SMTP) settings form. `hasSavedPassword` lets the admin keep the stored password by leaving the field blank.
+ * @returns {object} field → message
+ */
+export function validateEmailSettings(s, { hasSavedPassword = false } = {}) {
+  const e = {};
+  const host = String(s.host ?? '').trim();
+  const port = Number(s.port);
+  if (s.enabled || host) {
+    if (!host) e.host = 'Enter the SMTP server name, for example smtp.office365.com.';
+    else if (!/^[A-Za-z0-9.-]+$/.test(host) || host.length > 253) e.host = 'Use a host name or IP address, without http:// or spaces.';
+  }
+  if (s.enabled || s.port !== '' && s.port != null) {
+    if (!Number.isInteger(port) || port < 1 || port > 65535) e.port = 'Enter a port number from 1 to 65535.';
+  }
+  if (!Object.keys(SMTP_SECURITY).includes(s.security)) e.security = 'Choose the connection security.';
+  if (s.authRequired) {
+    if (!String(s.username ?? '').trim()) e.username = 'Enter the SMTP user name.';
+    if (!String(s.password ?? '') && !hasSavedPassword) e.password = 'Enter the SMTP password.';
+  }
+  if (s.enabled || s.fromEmail) {
+    if (!isEmail(s.fromEmail)) e.fromEmail = 'Enter the sender email address, for example holiday.dialysis@yourcompany.com.';
+  }
+  if (String(s.fromName ?? '').length > 100) e.fromName = 'Keep the sender name under 100 characters.';
+  if (s.replyTo && !isEmail(s.replyTo)) e.replyTo = 'Enter a valid reply-to address, or leave it empty.';
+  const t = Number(s.timeoutSeconds);
+  if (!Number.isInteger(t) || t < 5 || t > 120) e.timeoutSeconds = 'Timeout must be 5–120 seconds.';
+  return e;
 }

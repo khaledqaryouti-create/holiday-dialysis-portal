@@ -5,14 +5,12 @@ Work through these in order. Each prompt is written for Cursor's Agent (Ctrl/Cmd
 
 ---
 
-### 1. Microsoft Entra ID single sign-on (spec §4, §13.2)
-> Implement `AUTH_MODE=entra` in `backend/src/routes/auth.js` using `@azure/msal-node` (authorization code flow with PKCE).
-> Add `GET /api/auth/entra/login` (redirect to Entra) and `GET /api/auth/entra/callback` (exchange code, read `oid`, `preferred_username`,
-> `name` and `groups`). Look up `portal_user` by `entra_object_id`; on first sign-in match by lower(email) and store the oid.
-> Map Entra group object IDs to role codes using new env vars `ENTRA_GROUP_CLINIC_STAFF`, `ENTRA_GROUP_COORD_INTERNAL`,
-> `ENTRA_GROUP_COORD_INTERNATIONAL`, `ENTRA_GROUP_IT_ADMIN` (sync `user_role` with effective dates, audited as `RolesSyncedFromEntra`).
-> Refuse inactive users and users with no mapped role (friendly page). Then call `issueSession`. Add the env vars to `.env.example`,
-> update the login page so `mode === 'entra'` shows only the Microsoft button, and document the Azure app registration steps in README.
+### 1. Sign-in — done
+Microsoft (Entra ID), directory (LDAP/AD) and local passwords are built (Admin Settings → Sign-in & Directory).
+Optional follow-up prompt:
+> Add Microsoft Graph group lookup for users with more than 200 groups (the "groups overage" case in `lib/oidc.js`):
+> when `groupsOverage` is true, call `https://graph.microsoft.com/v1.0/me/memberOf` with the access token (needs
+> GroupMember.Read.All, admin-consented) and pass the group IDs to `provisionUser`. Add a unit test.
 
 ### 2. d.care patient lookup (spec §13 Phase 2)
 > Add `backend/src/services/dcare.js` with `searchPatients(user, q)` and `getPatient(dcareId)` calling the d.care REST API

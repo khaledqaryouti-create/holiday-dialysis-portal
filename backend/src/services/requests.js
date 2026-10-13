@@ -22,6 +22,7 @@ import { userIdsWithRole } from './users.js';
 import { storage, storageKey } from './storage.js';
 import { sendMail } from './mailer.js';
 import { confirmationLetterPdf } from './letters.js';
+import { explainSmtpError } from '../lib/smtp.js';
 
 const today = () => todayIn(config.timeZone);
 const isUuid = (s) => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
@@ -666,7 +667,7 @@ async function emailProvider(c, r, { to, cc, subject, body }) {
     return await sendMail({ to, cc, subject, text: body, attachments });
   } catch (err) {
     console.error('[mail] provider email failed', err.message);
-    throw new AppError(502, 'EMAIL_FAILED', 'The email could not be sent, so the request was not changed. Try again, or ask IT to check the mail settings.');
+    throw new AppError(502, 'EMAIL_FAILED', `The email could not be sent, so the request was not changed. ${explainSmtpError(err)} Ask IT to check Admin Settings → Email (SMTP).`);
   }
 }
 

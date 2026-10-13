@@ -10,6 +10,7 @@ import { authRouter } from './routes/auth.js';
 import { requestsRouter } from './routes/requests.js';
 import { referenceRouter, reportsRouter, notificationsRouter } from './routes/misc.js';
 import { adminRouter } from './routes/admin.js';
+import { brandingRouter } from './routes/branding.js';
 import { pool } from './db/pool.js';
 
 export function createApp() {
@@ -30,6 +31,7 @@ export function createApp() {
 
   app.use('/api', requireApiHeader, attachUser);
   app.use('/api/auth', authRouter);
+  app.use('/api/branding', brandingRouter);
   app.use('/api/requests', requestsRouter);
   app.use('/api/reference', referenceRouter);
   app.use('/api/reports', reportsRouter);

@@ -19,3 +19,5 @@ alwaysApply: false
   Orange (`--accent`) is for the primary next action only.
 - Mask identifiers in lists (`patientShort`, `mrnMasked` come from the API). Dates via `lib/format.js` (`fmtTS`, `fmtRange`).
 - Accessibility: every input has a label, icon-only buttons have `aria-label`, keyboard works for rows and dialogs.
+- Company name, logo, portal title and contact details come from `useBranding()` (`src/branding.jsx`); render them with
+  `BrandBlock` / `ContactList` from `components/Brand.jsx`. Never hard-code the company name or contact details.

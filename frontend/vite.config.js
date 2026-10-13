@@ -10,7 +10,9 @@ export default defineConfig({
     alias: { '@domain': fileURLToPath(new URL('../backend/src/domain', import.meta.url)) },
   },
   server: {
-    port: 5173,
+    host: '127.0.0.1',
+    port: 5174,
+    strictPort: true,
     proxy: { '/api': 'http://localhost:4000' },
     fs: { allow: ['..'] },
   },

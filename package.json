@@ -4,8 +4,13 @@
   "private": true,
   "type": "module",
   "description": "Holiday Dialysis Coordination Portal — React + Express + PostgreSQL (Supabase)",
-  "workspaces": ["backend", "frontend"],
-  "engines": { "node": ">=22" },
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "concurrently -n api,web -c green,yellow \"npm run dev -w backend\" \"npm run dev -w frontend\"",
     "build": "npm run build -w frontend",
@@ -15,6 +20,7 @@
     "db:migrate": "npm run db:migrate -w backend",
     "db:seed": "npm run db:seed -w backend --",
     "storage:setup": "npm run storage:setup -w backend",
+    "auth:set-password": "npm run auth:set-password -w backend --",
     "jobs:reminders": "npm run jobs:reminders -w backend"
   },
   "devDependencies": {

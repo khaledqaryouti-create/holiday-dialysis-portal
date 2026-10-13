@@ -2,6 +2,7 @@ import { query } from '../db/pool.js';
 
 const USER_SQL = `
   SELECT u.id, u.email, u.display_name AS name, u.account_status AS status, u.last_sign_in_at,
+         u.must_change_password, (u.password_hash IS NOT NULL) AS has_local_password, u.last_sign_in_method,
          coalesce(array_agg(DISTINCT ur.role_code) FILTER (WHERE ur.role_code IS NOT NULL), '{}')::text[] AS roles,
          coalesce(array_agg(DISTINCT s.facility_id::text) FILTER (WHERE s.facility_id IS NOT NULL), '{}')::text[] AS clinic_ids,
          coalesce(json_agg(DISTINCT jsonb_build_object('id', f.id, 'name', f.facility_name)) FILTER (WHERE f.id IS NOT NULL), '[]') AS clinics
@@ -15,6 +16,7 @@ const USER_SQL = `
 const mapUser = (r) => r && ({
   id: r.id, email: r.email, name: r.name, status: r.status, lastSignInAt: r.last_sign_in_at,
   roles: r.roles, clinicIds: r.clinic_ids, clinics: r.clinics,
+  mustChangePassword: !!r.must_change_password, hasLocalPassword: !!r.has_local_password, lastSignInMethod: r.last_sign_in_method ?? null,
 });
 
 export async function loadUser(id) {
@@ -42,16 +44,13 @@ export async function userIdsWithRole(client, role, facilityId = null) {
   return rows.map((r) => r.id);
 }
 
-export async function touchSignIn(id) {
-  await query('UPDATE portal_user SET last_sign_in_at = now() WHERE id = $1', [id]);
+export async function touchSignIn(id, method = null) {
+  await query('UPDATE portal_user SET last_sign_in_at = now(), last_sign_in_method = coalesce($2, last_sign_in_method) WHERE id = $1', [id, method]);
 }
 
 const isUuid = (s) => /^[0-9a-f-]{36}$/i.test(String(s));
 
-/**
- * Looks up an account by email and checks the password. Returns null when the email is unknown
- * or the password does not match, so callers can use one message for both.
- */
+/** Looks up an account by email and checks a bcrypt password. Returns null when the email is unknown or the password does not match. */
 export async function matchPassword(email, password) {
   const { rows } = await query(
     `SELECT id, account_status AS status,

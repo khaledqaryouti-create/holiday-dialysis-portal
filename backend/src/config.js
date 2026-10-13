@@ -22,7 +22,9 @@ export const config = Object.freeze({
   },
 
   auth: {
-    mode: env.AUTH_MODE || 'dev', // 'dev' | 'entra'
+    // 'dev' = development pick-a-user list shown in addition to the methods configured in Admin Settings → Sign-in & Directory.
+    // 'standard' = only the configured methods (Microsoft, directory, local passwords). 'entra' is accepted as 'standard'.
+    mode: env.AUTH_MODE === 'entra' ? 'standard' : env.AUTH_MODE || 'dev',
     sessionSecret: env.SESSION_SECRET || '',
     sessionHours: Number(env.SESSION_HOURS || 8),
     cookieName: 'hdp_session',
@@ -59,7 +61,7 @@ export function assertConfig({ needServer = true } = {}) {
   if (!config.fieldKey || config.fieldKey.length < 16) problems.push('FIELD_ENCRYPTION_KEY must be set (at least 16 characters; use `openssl rand -base64 32`).');
   if (needServer) {
     if (config.auth.sessionSecret.length < 32) problems.push('SESSION_SECRET must be at least 32 characters (use `openssl rand -base64 48`).');
-    if (!['dev', 'entra'].includes(config.auth.mode)) problems.push('AUTH_MODE must be "dev" or "entra".');
+    if (!['dev', 'standard'].includes(config.auth.mode)) problems.push('AUTH_MODE must be "dev" or "standard".');
     if (config.storage.driver === 'supabase' && (!config.storage.supabaseUrl || !config.storage.supabaseServiceRoleKey)) {
       problems.push('STORAGE_DRIVER=supabase needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.');
     }

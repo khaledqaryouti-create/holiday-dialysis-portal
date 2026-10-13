@@ -13,6 +13,7 @@
     "db:migrate": "node db/migrate.js",
     "db:seed": "node db/seed.js",
     "storage:setup": "node db/setup-storage.js",
+    "auth:set-password": "node db/set-password.js",
     "jobs:reminders": "node src/jobs/reminders.js",
     "test": "node --test \"test/unit/*.test.js\"",
     "test:api": "node --test --test-concurrency=1 \"test/api/*.test.js\""
@@ -22,7 +23,9 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "helmet": "^8.0.0",
+    "jose": "^5.9.6",
     "jsonwebtoken": "^9.0.2",
+    "ldapts": "^7.0.0",
     "multer": "^2.0.0",
     "nodemailer": "^6.9.16",
     "pdfkit": "^0.15.2",

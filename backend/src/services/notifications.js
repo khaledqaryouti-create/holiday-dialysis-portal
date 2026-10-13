@@ -4,6 +4,7 @@
 import { query } from '../db/pool.js';
 import { sendMail } from './mailer.js';
 import { renderTemplate } from '../domain/templates.js';
+import { explainSmtpError } from '../lib/smtp.js';
 
 export async function getActiveTemplate(client, code) {
   const run = client ? client.query.bind(client) : query;
@@ -52,10 +53,10 @@ export async function flushEmails(ids) {
   for (const n of rows) {
     try {
       await sendMail({ to: n.email, subject: n.title, text: n.message });
-      await query(`UPDATE notification SET delivery_status = 'Sent', sent_at = now() WHERE id = $1`, [n.id]);
+      await query(`UPDATE notification SET delivery_status = 'Sent', sent_at = now(), attempts = attempts + 1, last_error = NULL WHERE id = $1`, [n.id]);
     } catch (err) {
       console.error('[mail] notification send failed', n.id, err.message);
-      await query(`UPDATE notification SET delivery_status = 'Failed' WHERE id = $1`, [n.id]);
+      await query(`UPDATE notification SET delivery_status = 'Failed', attempts = attempts + 1, last_error = $2 WHERE id = $1`, [n.id, explainSmtpError(err)]);
     }
   }
 }

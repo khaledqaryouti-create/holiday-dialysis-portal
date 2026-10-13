@@ -8,8 +8,12 @@ import { useUi, useLoad, Loading, ErrorBox, FieldError, Modal } from '../compone
 import { ROLE_LABELS, ROLES, FACILITY_TYPE, FACILITY_TYPE_LABELS } from '@domain/constants.js';
 import { renderTemplate } from '@domain/templates.js';
 import { fmtTS } from '../lib/format.js';
+import EmailSettingsPage from './EmailSettingsPage.jsx';
+import AuthSettingsPage from './AuthSettingsPage.jsx';
+import BrandingPage from './BrandingPage.jsx';
+import { SIGN_IN_METHODS } from '@domain/auth.js';
 
-const TABS = [['users', 'User Management', 'users'], ['password-links', 'Password links', 'send'], ['facilities', 'Facilities & Providers', 'building'], ['sla', 'SLA Targets', 'sla'], ['templates', 'Notification Templates', 'mail'], ['audit', 'Audit History', 'history']];
+const TABS = [['users', 'User Management', 'users'], ['password-links', 'Password links', 'send'], ['facilities', 'Facilities & Providers', 'building'], ['sla', 'SLA Targets', 'sla'], ['templates', 'Notification Templates', 'mail'], ['email', 'Email (SMTP)', 'send'], ['signin', 'Sign-in & Directory', 'shield'], ['branding', 'Branding', 'palette'], ['audit', 'Audit History', 'history']];
 
 export default function AdminPage() {
   return (
@@ -27,6 +31,9 @@ export default function AdminPage() {
             <Route path="facilities" element={<Facilities />} />
             <Route path="sla" element={<Sla />} />
             <Route path="templates" element={<Templates />} />
+            <Route path="email" element={<EmailSettingsPage />} />
+            <Route path="signin" element={<AuthSettingsPage />} />
+            <Route path="branding" element={<BrandingPage />} />
             <Route path="audit" element={<Audit />} />
           </Routes>
         </div>
@@ -46,6 +53,7 @@ function Users() {
   const users = useLoad(() => api.get('/admin/users'), []);
   const clinics = useLoad(() => api.get('/reference/facilities?type=DiaverumClinic&all=1'), []);
   const [edit, setEdit] = useState(null);
+  const [pw, setPw] = useState(null);
   if (users.loading && !users.data) return <Loading />;
   return (
     <>
@@ -53,14 +61,16 @@ function Users() {
         action={<button className="btn primary" onClick={() => setEdit({})}><Icon name="plus" />Add user</button>} />
       <ErrorBox error={users.error} />
       <div className="card"><div className="table-wrap"><table>
-        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Clinic</th><th>Status</th><th>Last sign-in</th><th /></tr></thead>
+        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Clinic</th><th>Status</th><th>Last sign-in</th><th>Local password</th><th /></tr></thead>
         <tbody>{(users.data || []).map((u) => (
           <tr key={u.id}><td><b>{u.name}</b></td><td>{u.email}</td><td>{u.roles.map((r) => ROLE_LABELS[r]).join(', ')}</td>
             <td>{u.clinics.map((c) => c.name).join(', ') || <span className="muted">—</span>}</td>
             <td>{u.status === 'Active' ? <span className="pill t-good">Active</span> : <span className="pill t-muted">Inactive</span>}</td>
-            <td className="num">{fmtTS(u.lastSignInAt)}</td>
-            <td><div className="row" style={{ gap: 12, flexWrap: 'nowrap' }}>
+            <td className="num">{fmtTS(u.lastSignInAt)}{u.lastSignInMethod && <span className="sub">{SIGN_IN_METHODS[u.lastSignInMethod]}</span>}</td>
+            <td>{u.hasLocalPassword ? <span className={`pill ${u.mustChangePassword ? 't-pending' : 't-good'}`}>{u.mustChangePassword ? 'Temporary' : 'Set'}</span> : <span className="muted">—</span>}</td>
+            <td><div className="row" style={{ gap: 12 }}>
               <button className="textlink" onClick={() => setEdit(u)}>Edit</button>
+              <button className="textlink" onClick={() => setPw(u)}>Password</button>
               {u.id !== me.id && <button className={`textlink ${u.status === 'Active' ? 'danger' : ''}`} onClick={async () => {
                 const act = u.status !== 'Active';
                 if (!(await confirm({ title: `${act ? 'Activate' : 'Deactivate'} ${u.name}?`, body: act ? 'They will be able to sign in again.' : 'They will no longer be able to sign in. Their past actions stay in the audit history.', ok: act ? 'Activate' : 'Deactivate', tone: act ? 'primary' : 'danger' }))) return;
@@ -70,6 +80,7 @@ function Users() {
         ))}</tbody>
       </table></div></div>
       {edit && <UserForm user={edit} clinics={clinics.data || []} onClose={() => setEdit(null)} onSaved={(msg) => { setEdit(null); toast(msg); users.reload(); }} />}
+      {pw && <PasswordModal user={pw} onClose={() => { setPw(null); users.reload(); }} />}
     </>
   );
 }
@@ -375,4 +386,51 @@ function Audit() {
 function summarize(d) {
   if (d.from && d.to) return `${d.from} → ${d.to}`;
   return Object.entries(d).filter(([, v]) => typeof v !== 'object').map(([k, v]) => `${k}: ${v}`).join(' · ') || JSON.stringify(d).slice(0, 160);
+}
+
+// ---------------------------------------------------------------- local password for a user
+function PasswordModal({ user, onClose }) {
+  const { toast, confirm } = useUi();
+  const { options } = useAuth();
+  const [mode, setMode] = useState('generate');
+  const [password, setPassword] = useState('');
+  const [mustChange, setMustChange] = useState(true);
+  const [temp, setTemp] = useState(null);
+  const [err, setErr] = useState({});
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    try {
+      const r = await api.post(`/admin/users/${user.id}/password`, mode === 'generate' ? { generate: true } : { password, mustChange });
+      if (r.temporaryPassword) setTemp(r.temporaryPassword); else { toast('Password set'); onClose(); }
+    } catch (e) { setErr(e.fields && Object.keys(e.fields).length ? e.fields : { general: e.message }); } finally { setBusy(false); }
+  };
+  const remove = async () => {
+    if (!(await confirm({ title: `Remove ${user.name}’s local password?`, body: 'They will only be able to sign in with the company directory or Microsoft.', ok: 'Remove', tone: 'danger' }))) return;
+    try { await api.del(`/admin/users/${user.id}/password`); toast('Local password removed'); onClose(); } catch (e) { toast(e.message, 'bad'); }
+  };
+  if (temp) {
+    return (
+      <Modal title="Temporary password" onClose={onClose} footer={<button className="btn primary" onClick={onClose}>Done</button>}>
+        <p>Give this password to <b>{user.name}</b> in person or by phone. It is shown only once, and they must change it when they sign in.</p>
+        <div className="recip"><span className="mono" style={{ fontSize: '1.2rem', letterSpacing: '.04em', userSelect: 'all' }}>{temp}</span></div>
+        <button className="btn sm" onClick={() => navigator.clipboard?.writeText(temp).then(() => toast('Copied'), () => {})}><Icon name="doc" />Copy</button>
+      </Modal>
+    );
+  }
+  return (
+    <Modal title={`Local password — ${user.name}`} onClose={onClose}
+      footer={<>{user.hasLocalPassword && <button className="btn danger" style={{ marginRight: 'auto' }} onClick={remove}>Remove local password</button>}
+        <button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy || (mode === 'set' && !password)} onClick={save}>{mode === 'generate' ? 'Generate password' : 'Set password'}</button></>}>
+      <p className="small muted">Local passwords let a person sign in with their email and a portal password, alongside directory or Microsoft sign-in. {user.hasLocalPassword ? 'This user already has one; this replaces it.' : ''}</p>
+      {!options?.local && <div className="banner warn"><Icon name="info" /><span>Local passwords are <b>not active</b>. You can set the password now; it only starts working after you switch on <b>Local passwords</b> in Sign-in &amp; Directory and save.</span></div>}
+      <label className="check-row"><input type="radio" name="pwmode" checked={mode === 'generate'} onChange={() => setMode('generate')} /> Generate a temporary password (must be changed at first sign-in)</label>
+      <label className="check-row"><input type="radio" name="pwmode" checked={mode === 'set'} onChange={() => setMode('set')} /> Type a password</label>
+      {mode === 'set' && <>
+        <div className="f"><label htmlFor="pw-new">Password</label><input id="pw-new" type="password" autoComplete="new-password" className={`input ${err.password ? 'err' : ''}`} value={password} onChange={(e) => setPassword(e.target.value)} /><FieldError msg={err.password} /></div>
+        <label className="check-row"><input type="checkbox" checked={mustChange} onChange={(e) => setMustChange(e.target.checked)} /> Ask them to change it at next sign-in</label>
+      </>}
+      <FieldError msg={err.general} />
+    </Modal>
+  );
 }
