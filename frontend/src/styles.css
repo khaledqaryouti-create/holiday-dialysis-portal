@@ -431,13 +431,14 @@ details.sec .body{padding:4px 18px 18px}
 .login-dev-h{font-size:.95rem;margin:0}
 @media (prefers-reduced-motion:no-preference){.lf{animation:login-in .45s cubic-bezier(.2,.7,.2,1) both}@keyframes login-in{from{opacity:0;transform:translateY(10px)}}}
 @media (max-width:1400px){.lv-msg{display:none}}
-@media (max-width:1300px){.lv{grid-template-columns:minmax(0,1fr)}.lv-art{display:none}}
+@media (max-width:1300px){.lv{grid-template-columns:minmax(0,1fr)}.lv-art{justify-content:center}}
 @media (max-width:860px){
   .login2{grid-template-columns:minmax(0,1fr)}
   .login2-brand{padding:20px 20px 24px}
   .lv{gap:16px}.lv-logo img{height:44px}
   .lv-tagline{font-size:1.5rem}
-  .lv-msg,.lv-steps,.lv-art{display:none}
+  .lv-msg,.lv-steps{display:none}
+  .trip-art{max-width:280px}
   .login2-form{justify-content:flex-start;padding:28px 20px 36px}
 }
 .users{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
