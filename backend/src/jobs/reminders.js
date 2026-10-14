@@ -20,7 +20,7 @@ export async function runReminders(now = new Date()) {
     `SELECT r.id, r.current_status, r.destination_type, r.receiving_facility_id, r.status_changed_at, r.travel_end_date,
             (SELECT max(n.created_at) FROM notification n WHERE n.request_id = r.id AND n.notification_type = 'Reminder') AS last_reminder
        FROM holiday_dialysis_request r
-      WHERE r.current_status IN ('PendingClinicResponse','PendingProviderEmail','SentToProviderAwaitingResponse')
+      WHERE r.current_status IN ('PendingClinicResponse','PendingProviderEmail','SentToProviderAwaitingResponse','AlternativeDatesProposed')
          OR (r.current_status = 'Confirmed' AND r.travel_end_date < $1::date)`,
     [today],
   );
@@ -38,6 +38,8 @@ export async function runReminders(now = new Date()) {
       let userIds = [];
       if (r.status === STATUS.PENDING_CLINIC) {
         userIds = [...(await userIdsWithRole(c, ROLES.CLINIC_STAFF, r.receivingFacilityId)), ...(await userIdsWithRole(c, ROLES.COORD_INTERNAL))];
+      } else if (r.status === STATUS.ALT_PROPOSED) {
+        userIds = [r.createdBy, ...(await userIdsWithRole(c, ROLES.CLINIC_STAFF, r.requestingFacilityId))].filter((v, i, arr) => arr.indexOf(v) === i);
       } else if (r.status === STATUS.CONFIRMED) {
         userIds = await userIdsWithRole(c, r.destinationType === DEST.INTERNAL ? ROLES.COORD_INTERNAL : ROLES.COORD_INTERNATIONAL);
       } else {

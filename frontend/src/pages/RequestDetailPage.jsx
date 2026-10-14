@@ -5,10 +5,11 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, qs, ApiError } from '../api.js';
 import { useAuth, roleHelpers } from '../auth.jsx';
 import { Icon } from '../components/Icon.jsx';
+import DateRangePicker, { addDaysIso } from '../components/DateRangePicker.jsx';
 import { Timeline } from '../components/Timeline.jsx';
 import { useUi, StatusPill, DestChip, Loading, ErrorBox, FieldError, Modal, fmtSize } from '../components/ui.jsx';
-import { DEST, DEST_LABELS, DOC_TYPES, REASON_MAX } from '@domain/constants.js';
-import { validateConfirmedDates, validateReason, isEmail, validateFile } from '@domain/validation.js';
+import { DEST, DEST_LABELS, DOC_TYPES, REASON_MAX, MAX_DATE_OPTIONS, CONFIRMED_DATES_TOLERANCE_DAYS } from '@domain/constants.js';
+import { validateConfirmedDates, validateReason, isEmail, validateFile, validateDateOptions } from '@domain/validation.js';
 import { fmtRange, fmtTS, daysBetween } from '../lib/format.js';
 
 export default function RequestDetailPage() {
@@ -63,9 +64,10 @@ export default function RequestDetailPage() {
   ].sort((a, b) => String(a.at).localeCompare(String(b.at)));
   const panels = [];
   if (can('editDraft')) panels.push(<DraftPanel key="draft" r={r} nav={nav} confirm={confirm} toast={toast} />);
-  if (can('approve')) panels.push(<ClinicResponsePanel key="clinic" r={r} act={act} confirm={confirm} />);
+  if (can('approve')) panels.push(<ClinicResponsePanel key="clinic" r={r} act={act} confirm={confirm} canPropose={can('proposeDates')} proposeBlocked={r.pendingActions.find((p) => p.action === 'proposeDates')?.reason} />);
+  if (can('acceptProposedDates')) panels.push(<AnswerProposalPanel key="answer" r={r} act={act} confirm={confirm} canAskAgain={can('requestOtherDates')} askBlocked={r.pendingActions.find((p) => p.action === 'requestOtherDates')?.reason} />);
   if (can('sendToProvider')) panels.push(<SendPanel key="send" r={r} act={act} />);
-  if (can('recordProviderApproved')) panels.push(<RecordPanel key="record" r={r} act={act} confirm={confirm} />);
+  if (can('recordProviderApproved')) panels.push(<RecordPanel key="record" r={r} act={act} confirm={confirm} canPropose={can('recordProviderAlternative')} />);
   if (can('complete') || waitText) {
     panels.push(
       <div key="complete" className="stack" style={{ gap: 12 }}>
@@ -86,7 +88,7 @@ export default function RequestDetailPage() {
       </div>,
     );
   }
-  const showWaiting = !panels.some((p) => ['clinic', 'send', 'record'].includes(p.key));
+  const showWaiting = !panels.some((p) => ['clinic', 'send', 'record', 'answer'].includes(p.key));
 
   return (
     <>
@@ -114,6 +116,9 @@ export default function RequestDetailPage() {
             <div className="body">{kv([
               ['Patient name', r.patientName], ['MRN', r.mrn],
               ['ID number', r.identifierMasked ? `${r.identifierMasked} (${r.identifierType === 'Passport' ? 'Passport' : 'National ID / Iqama'})` : '—'],
+              ['Patient mobile', r.contacts?.patientMobile ? <a href={`tel:${r.contacts.patientMobile}`} dir="ltr">{fmtPhone(r.contacts.patientMobile)}</a> : '—'],
+              ['Relative', r.contacts?.relativeMobile || r.contacts?.relativeName
+                ? <>{r.contacts.relativeName}{r.contacts.relativeName && r.contacts.relativeMobile ? ' · ' : ''}{r.contacts.relativeMobile && <a href={`tel:${r.contacts.relativeMobile}`} dir="ltr">{fmtPhone(r.contacts.relativeMobile)}</a>}</> : '—'],
               ['Home clinic', r.requestingFacilityName], ['Requesting staff', r.createdByName], ['Destination type', DEST_LABELS[r.destinationType]],
             ])}</div></details>
 
@@ -142,6 +147,11 @@ export default function RequestDetailPage() {
               ) : <div className="empty">No attachments yet.</div>}
               {r.status !== 'Draft' && <p className="small muted" style={{ padding: '10px 18px 6px' }}>Attachments are locked after submission. Every view and download is recorded.</p>}
             </div></details>
+
+          {r.proposals?.length > 0 && (
+            <details className="sec" open><summary><Icon name="clock" />Proposed Dates <span className="muted small" style={{ fontWeight: 500 }}>({r.proposals.length} round{r.proposals.length === 1 ? '' : 's'})</span><Icon name="chev" className="chev" /></summary>
+              <div className="body stack" style={{ gap: 14 }}>{r.proposals.slice().reverse().map((p) => <ProposalCard key={p.id} p={p} />)}</div></details>
+          )}
 
           {r.communications.length > 0 && (
             <details className="sec" open><summary><Icon name="mail" />Provider Email History<Icon name="chev" className="chev" /></summary>
@@ -210,7 +220,8 @@ function DraftPanel({ r, nav, confirm, toast }) {
 }
 
 // ---------------------------------------------------------------- Internal: receiving clinic
-function ClinicResponsePanel({ r, act, confirm }) {
+function ClinicResponsePanel({ r, act, confirm, canPropose, proposeBlocked }) {
+  const [proposing, setProposing] = useState(false);
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
   const [reason, setReason] = useState('');
@@ -227,19 +238,31 @@ function ClinicResponsePanel({ r, act, confirm }) {
     if (!(await confirm({ title: 'Reject this request?', body: `The request will be closed as Rejected and ${r.createdByName} will see your reason. This cannot be undone.`, ok: 'Reject request', tone: 'danger' }))) return;
     try { await act(() => api.post(`/requests/${r.id}/reject`, { reason, rowVersion: r.rowVersion }), 'Request rejected'); } catch (x) { setErr(x.fields); }
   };
+  if (proposing) {
+    return (
+      <div className="stack" style={{ gap: 14 }}>
+        <div><h2>Propose Other Dates</h2><p className="hint">Instead of rejecting, offer dates when {r.receivingFacilityName} can take the patient.</p></div>
+        <ProposeDatesForm r={r} act={act} confirm={confirm} onCancel={() => setProposing(false)} />
+      </div>
+    );
+  }
   return (
     <div className="stack" style={{ gap: 14 }}>
       <div><h2>Clinic Response</h2><p className="hint">To be completed by {r.receivingFacilityName}.</p></div>
       <div>
         <label className="small" style={{ fontWeight: 600 }}>Confirmed session dates <span style={{ color: 'var(--bad-fg)' }}>*</span></label>
-        <div className="two" style={{ marginTop: 6 }}>
-          <input type="date" className="input" aria-label="First session" value={start} onChange={(e) => { setStart(e.target.value); setErr({}); }} />
-          <input type="date" className="input" aria-label="Last session" value={end} min={start} onChange={(e) => { setEnd(e.target.value); setErr({}); }} />
-        </div>
+        <div style={{ marginTop: 6 }}><SessionsPicker r={r} start={start} end={end} invalid={!!err.confirmedDates} onChange={(v) => { setStart(v.start); setEnd(v.end); setErr({}); }} /></div>
         <p className="hint" style={{ marginTop: 4 }}>Requested: {fmtRange(r.travelStart, r.travelEnd)}</p>
         <FieldError msg={err.confirmedDates} />
       </div>
       <button className="btn brand block" disabled={!start || !end} onClick={approve}><Icon name="checkc" />Approve (confirm sessions)</button>
+      <div className="alt-box">
+        <b className="small">Can't take these dates?</b>
+        {canPropose
+          ? <><span className="small muted">Offer up to {MAX_DATE_OPTIONS} other periods. The requester chooses one before anything is declined.</span>
+            <button className="btn block" onClick={() => setProposing(true)}><Icon name="clock" />Propose other dates</button></>
+          : <span className="small muted">{proposeBlocked || 'Proposing other dates isn’t available.'}</span>}
+      </div>
       <div>
         <label htmlFor="cr-reason" className="small" style={{ fontWeight: 600 }}>Rejection reason</label>
         <textarea id="cr-reason" className="input" style={{ marginTop: 6 }} maxLength={REASON_MAX} value={reason} onChange={(e) => { setReason(e.target.value); setErr({}); }}
@@ -308,42 +331,56 @@ function SendPanel({ r, act }) {
 }
 
 // ---------------------------------------------------------------- External: record provider reply
-function RecordPanel({ r, act, confirm }) {
+function RecordPanel({ r, act, confirm, canPropose }) {
   const [outcome, setOutcome] = useState('Approved');
+  const [options, setOptions] = useState([blankOption()]);
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
   const [notes, setNotes] = useState('');
   const [reason, setReason] = useState('');
   const [file, setFile] = useState(null);
   const [err, setErr] = useState({});
-  const ready = outcome === 'Approved' ? start && end : reason.trim().length >= 10;
+  const ready = outcome === 'Approved' ? start && end : outcome === 'Alternative' ? options.some((o) => o.start && o.end) : reason.trim().length >= 10;
   const save = async () => {
-    const e = outcome === 'Approved' ? validateConfirmedDates(r, start, end) : validateReason(reason, 'decline reason');
-    if (e) return setErr(outcome === 'Approved' ? { confirmedDates: e } : { reason: e });
-    const ok = await confirm(outcome === 'Approved'
+    if (outcome === 'Alternative') {
+      const oe = validateDateOptions(options, todayIso(), { max: MAX_DATE_OPTIONS });
+      setErr(oe); if (Object.keys(oe).length) return;
+    } else {
+      const e = outcome === 'Approved' ? validateConfirmedDates(r, start, end) : validateReason(reason, 'decline reason');
+      if (e) return setErr(outcome === 'Approved' ? { confirmedDates: e } : { reason: e });
+    }
+    const ok = await confirm(outcome === 'Alternative'
+      ? { title: 'Save the provider’s other dates?', body: `${r.createdByName} will be asked to accept one option or ask for other dates.`, ok: 'Save other dates', tone: 'brand' }
+      : outcome === 'Approved'
       ? { title: 'Save approved response?', body: `The request will be set to Confirmed for ${fmtRange(start, end)}, a confirmation letter generated and ${r.createdByName} notified.`, ok: 'Save approved response', tone: 'brand' }
       : { title: 'Save declined response?', body: `The request will be closed as Rejected and ${r.createdByName} notified so they can rebook.`, ok: 'Save declined response', tone: 'danger' });
     if (!ok) return;
     const form = new FormData();
     form.append('outcome', outcome);
     form.append('rowVersion', String(r.rowVersion));
-    if (outcome === 'Approved') { form.append('confirmedStart', start); form.append('confirmedEnd', end); form.append('notes', notes); } else form.append('reason', reason);
+    if (outcome === 'Approved') { form.append('confirmedStart', start); form.append('confirmedEnd', end); form.append('notes', notes); }
+    else if (outcome === 'Alternative') { form.append('options', JSON.stringify(options)); form.append('notes', notes); }
+    else form.append('reason', reason);
     if (file) form.append('replyFile', file);
-    try { await act(() => api.upload(`/requests/${r.id}/provider-response`, form), outcome === 'Approved' ? 'Provider approval recorded' : 'Provider decline recorded'); } catch (x) { setErr(x.fields); }
+    try { await act(() => api.upload(`/requests/${r.id}/provider-response`, form), outcome === 'Approved' ? 'Provider approval recorded' : outcome === 'Alternative' ? 'Other dates sent to the requester' : 'Provider decline recorded'); } catch (x) { setErr(x.fields || {}); }
   };
   return (
     <div className="stack" style={{ gap: 14 }}>
       <div><h2>Record Provider Response</h2><p className="hint">Use this when the provider’s email reply arrives. It updates this request; it never creates a new one.</p></div>
       <div className="seg" role="radiogroup">
-        {['Approved', 'Declined'].map((o) => <label key={o}><input type="radio" name="resp" checked={outcome === o} onChange={() => { setOutcome(o); setErr({}); }} />{o}</label>)}
+        {[['Approved', 'Approved'], ...(canPropose ? [['Alternative', 'Other dates']] : []), ['Declined', 'Declined']].map(([o, l]) => <label key={o}><input type="radio" name="resp" checked={outcome === o} onChange={() => { setOutcome(o); setErr({}); }} />{l}</label>)}
       </div>
-      {outcome === 'Approved' ? (
+      {outcome === 'Alternative' ? (
+        <>
+          <p className="hint" style={{ margin: 0 }}>The provider can't take {fmtRange(r.travelStart, r.travelEnd)} but offered other dates. Enter them; the requester chooses.</p>
+          <DateOptionsEditor options={options} setOptions={(o) => { setOptions(o); setErr({}); }} err={err} minDate={todayIso()} reference={{ start: r.travelStart, end: r.travelEnd, label: 'Requested' }} />
+          <div><label htmlFor="rp-notes-alt" className="small" style={{ fontWeight: 600 }}>Notes from the provider</label>
+            <textarea id="rp-notes-alt" className="input" style={{ marginTop: 6, minHeight: 64 }} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Morning shifts only" /></div>
+        </>
+      ) : outcome === 'Approved' ? (
         <>
           <div><label className="small" style={{ fontWeight: 600 }}>Confirmed session dates <span style={{ color: 'var(--bad-fg)' }}>*</span></label>
-            <div className="two" style={{ marginTop: 6 }}>
-              <input type="date" className="input" aria-label="First session" value={start} onChange={(e) => setStart(e.target.value)} />
-              <input type="date" className="input" aria-label="Last session" value={end} min={start} onChange={(e) => setEnd(e.target.value)} />
-            </div>
+            <div style={{ marginTop: 6 }}><SessionsPicker r={r} start={start} end={end} invalid={!!err.confirmedDates} onChange={(v) => { setStart(v.start); setEnd(v.end); setErr({}); }} /></div>
             <p className="hint" style={{ marginTop: 4 }}>Requested: {fmtRange(r.travelStart, r.travelEnd)}</p><FieldError msg={err.confirmedDates} /></div>
           <div><label htmlFor="rp-notes" className="small" style={{ fontWeight: 600 }}>Notes from the provider</label>
             <textarea id="rp-notes" className="input" style={{ marginTop: 6, minHeight: 70 }} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. arrive 30 minutes before the first session" /></div>
@@ -365,10 +402,199 @@ function RecordPanel({ r, act, confirm }) {
         )}
         <FieldError msg={err.replyFile} />
       </div>
-      <button className={`btn ${outcome === 'Approved' ? 'brand' : 'danger'} block`} disabled={!ready} onClick={save}>
-        <Icon name={outcome === 'Approved' ? 'checkc' : 'x'} />{outcome === 'Approved' ? 'Save approved response' : 'Save declined response'}
+      <button className={`btn ${outcome === 'Declined' ? 'danger' : outcome === 'Alternative' ? 'primary' : 'brand'} block`} disabled={!ready} onClick={save}>
+        <Icon name={outcome === 'Approved' ? 'checkc' : outcome === 'Alternative' ? 'clock' : 'x'} />{outcome === 'Approved' ? 'Save approved response' : outcome === 'Alternative' ? 'Send other dates to requester' : 'Save declined response'}
       </button>
       <button className="btn ghost sm" onClick={() => act(() => api.post(`/requests/${r.id}/resend-to-provider`, { rowVersion: r.rowVersion }), 'Email resent')}><Icon name="send" />Resend email to provider</button>
     </div>
   );
+}
+
+// ---------------------------------------------------------------- Other dates (instead of declining)
+const blankOption = () => ({ start: '', end: '', sessions: '', note: '' });
+const OUTCOME_TEXT = { Open: 'Waiting for the requesting clinic', Accepted: 'Accepted', OtherDatesRequested: 'Other dates requested', Withdrawn: 'Request withdrawn' };
+
+/** Up to 3 date ranges with optional sessions and note. */
+function DateOptionsEditor({ options, setOptions, err, minDate, reference }) {
+  const set = (i, k, v) => setOptions(options.map((o, j) => (j === i ? { ...o, [k]: v } : o)));
+  return (
+    <div className="stack" style={{ gap: 10 }}>
+      {options.map((o, i) => (
+        <div key={i} className="opt-edit">
+          <div className="spread"><b className="small">Option {i + 1}</b>
+            {options.length > 1 && <button type="button" className="textlink danger small" onClick={() => setOptions(options.filter((_, j) => j !== i))}>Remove</button>}</div>
+          <DateRangePicker ariaLabel={`Option ${i + 1} dates`} placeholder="Choose first and last session" min={minDate} start={o.start} end={o.end}
+            reference={reference} invalid={!!err[`option${i + 1}`]} clearable={false}
+            onChange={(v) => setOptions(options.map((x, j) => (j === i ? { ...x, start: v.start, end: v.end } : x)))} />
+          <div className="two">
+            <input type="number" min="1" max="60" className="input" aria-label={`Option ${i + 1} sessions`} placeholder="Sessions (optional)" value={o.sessions} onChange={(e) => set(i, 'sessions', e.target.value)} />
+            <input className="input" maxLength={300} aria-label={`Option ${i + 1} note`} placeholder="Note, e.g. evening shift" value={o.note} onChange={(e) => set(i, 'note', e.target.value)} />
+          </div>
+          <FieldError msg={err[`option${i + 1}`]} />
+        </div>
+      ))}
+      {options.length < MAX_DATE_OPTIONS && <button type="button" className="btn sm" onClick={() => setOptions([...options, blankOption()])}><Icon name="plus" />Add another option</button>}
+      <FieldError msg={err.options} />
+    </div>
+  );
+}
+
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+/** Receiving clinic (Internal): propose other dates instead of rejecting. */
+function ProposeDatesForm({ r, act, confirm, onCancel }) {
+  const [options, setOptions] = useState([blankOption()]);
+  const [message, setMessage] = useState('');
+  const [err, setErr] = useState({});
+  const send = async () => {
+    const e = validateDateOptions(options, todayIso(), { max: MAX_DATE_OPTIONS });
+    setErr(e); if (Object.keys(e).length) return;
+    if (!(await confirm({ title: 'Send these dates to the requester?', body: `${r.createdByName} at ${r.requestingFacilityName} will be asked to accept one option or ask for other dates. The request waits for their answer.`, ok: 'Propose dates', tone: 'brand' }))) return;
+    try { await act(() => api.post(`/requests/${r.id}/propose-dates`, { options, message, rowVersion: r.rowVersion }), 'Other dates proposed'); } catch (x) { setErr(x.fields || {}); }
+  };
+  return (
+    <div className="stack" style={{ gap: 12 }}>
+      <p className="hint" style={{ margin: 0 }}>Requested: <b>{fmtRange(r.travelStart, r.travelEnd)}</b>, {r.sessionsRequired} sessions. Offer up to {MAX_DATE_OPTIONS} periods you can take the patient.</p>
+      <DateOptionsEditor options={options} setOptions={(o) => { setOptions(o); setErr({}); }} err={err} minDate={todayIso()} reference={{ start: r.travelStart, end: r.travelEnd, label: 'Requested' }} />
+      <div><label htmlFor="pd-msg" className="small" style={{ fontWeight: 600 }}>Message to the requester</label>
+        <textarea id="pd-msg" className="input" style={{ marginTop: 6, minHeight: 64 }} maxLength={1000} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="e.g. We are fully booked that week; these slots are free." /></div>
+      <div className="row" style={{ gap: 8 }}>
+        <button className="btn brand" onClick={send}><Icon name="send" />Propose dates</button>
+        <button className="btn ghost" onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+/** One round of proposed dates, read-only. */
+function ProposalCard({ p }) {
+  return (
+    <div className="prop-card">
+      <div className="spread" style={{ alignItems: 'flex-start' }}>
+        <div><b>Round {p.round}: {p.source === 'ExternalProvider' ? 'provider' : 'receiving clinic'}</b>
+          <div className="small muted">{fmtTS(p.proposedAt)} · {p.proposedBy}</div></div>
+        <span className={`pill ${p.outcome === 'Accepted' ? 't-good' : p.outcome === 'Open' ? 't-pending' : 't-muted'}`}>{OUTCOME_TEXT[p.outcome]}</span>
+      </div>
+      {p.message && <p className="small" style={{ margin: '8px 0 0', whiteSpace: 'pre-line' }}>{p.message}</p>}
+      <ul className="opt-list">{p.options.map((o) => (
+        <li key={o.id} className={p.acceptedOptionId === o.id ? 'on' : ''}>
+          <span className="opt-no">{p.acceptedOptionId === o.id ? <Icon name="check" size={12} /> : o.no}</span>
+          <span><b>{fmtRange(o.start, o.end)}</b>{o.sessions ? <span className="muted"> · {o.sessions} sessions</span> : null}{o.note ? <span className="muted"> · {o.note}</span> : null}</span>
+        </li>))}</ul>
+      {p.responseNote && p.outcome !== 'Open' && <p className="small muted" style={{ margin: '8px 0 0' }}>{p.respondedBy}: {p.responseNote}</p>}
+    </div>
+  );
+}
+
+/** Requesting clinic: accept one option, or ask for other dates. */
+function AnswerProposalPanel({ r, act, confirm, canAskAgain, askBlocked }) {
+  const p = (r.proposals || []).find((x) => x.outcome === 'Open');
+  const [choice, setChoice] = useState('');
+  const [covered, setCovered] = useState(false);
+  const [file, setFile] = useState(null);
+  const [mode, setMode] = useState('accept');
+  const [reason, setReason] = useState('');
+  const [err, setErr] = useState({});
+  if (!p) return null;
+  const opt = p.options.find((o) => o.id === choice);
+  const accept = async () => {
+    if (!opt) return setErr({ optionId: 'Choose one of the options.' });
+    if (!covered && !file) return setErr({ approvals: 'Confirm the approval covers the new dates, or attach an updated MOH approval.' });
+    if (!(await confirm({ title: `Accept ${fmtRange(opt.start, opt.end)}?`, body: `The request will be confirmed for these dates, the travel dates updated and a confirmation letter generated.${r.destinationType !== 'Internal' ? ' The coordination team will let the provider know.' : ''}`, ok: 'Accept and confirm', tone: 'brand' }))) return;
+    const form = new FormData();
+    form.append('optionId', opt.id); form.append('approvalsConfirmed', String(covered)); form.append('rowVersion', String(r.rowVersion));
+    if (file) form.append('approvalFile', file);
+    try { await act(() => api.upload(`/requests/${r.id}/accept-proposed-dates`, form), 'Dates accepted. Request confirmed'); } catch (x) { setErr(x.fields || {}); }
+  };
+  const askAgain = async () => {
+    const e = validateReason(reason, 'reason'); if (e) return setErr({ reason: e });
+    if (!(await confirm({ title: 'Ask for other dates?', body: r.destinationType === 'Internal' ? `${r.receivingFacilityName} will be asked to propose other dates, approve or reject.` : 'The coordination team will contact the provider again.', ok: 'Ask for other dates', tone: 'brand' }))) return;
+    try { await act(() => api.post(`/requests/${r.id}/request-other-dates`, { reason, rowVersion: r.rowVersion }), 'Other dates requested'); } catch (x) { setErr(x.fields || {}); }
+  };
+  const withdraw = async () => {
+    if (!(await confirm({ title: 'Withdraw this request?', body: 'The request will be closed as Withdrawn and the coordination team told that no action is needed. This cannot be undone.', ok: 'Withdraw request', tone: 'danger' }))) return;
+    await act(() => api.post(`/requests/${r.id}/withdraw`, { rowVersion: r.rowVersion }), 'Request withdrawn');
+  };
+  return (
+    <div className="stack" style={{ gap: 14 }}>
+      <div><h2>Other Dates Proposed</h2>
+        <p className="hint">{p.source === 'ExternalProvider' ? (r.selectedFacilityName || r.freeTextFacility || 'The provider') : r.receivingFacilityName} can't take {fmtRange(r.travelStart, r.travelEnd)}. Choose one option, or ask for other dates.</p></div>
+      {p.message && <div className="waiting"><Icon name="chat" /><span style={{ whiteSpace: 'pre-line' }}>{p.message}</span></div>}
+      <div className="seg" role="radiogroup">
+        {[['accept', 'Accept a date'], ['again', 'None work'], ['cancel', 'Cancel']].map(([k, l]) => <label key={k}><input type="radio" name="ans" checked={mode === k} onChange={() => { setMode(k); setErr({}); }} />{l}</label>)}
+      </div>
+      {mode === 'accept' ? (
+        <>
+          <div className="stack" style={{ gap: 8 }} role="radiogroup" aria-label="Proposed options">
+            {p.options.map((o) => (
+              <label key={o.id} className={`opt-pick ${choice === o.id ? 'on' : ''}`}>
+                <input type="radio" name="opt" checked={choice === o.id} onChange={() => { setChoice(o.id); setErr({}); }} />
+                <span><b>{fmtRange(o.start, o.end)}</b><small>{daysBetween(o.start, o.end)} days{o.sessions ? ` · ${o.sessions} sessions` : ''}{o.note ? ` · ${o.note}` : ''}</small></span>
+              </label>))}
+            <FieldError msg={err.optionId} />
+          </div>
+          <label className="check-row small"><input type="checkbox" checked={covered} onChange={(e) => { setCovered(e.target.checked); setErr({}); }} /> The MOH (and MOD) approval covers these dates</label>
+          <div><span className="small" style={{ fontWeight: 600 }}>Or attach an updated MOH approval</span>
+            {file ? (
+              <div className="up-file" style={{ marginTop: 6 }}><Icon name="doc" /><span><b>{file.name}</b><small>{fmtSize(file.size)}</small></span><button onClick={() => setFile(null)} aria-label="Remove"><Icon name="x" /></button></div>
+            ) : (
+              <div className="row" style={{ marginTop: 6 }}><label className="btn sm" htmlFor="file-approval"><Icon name="clip" />Attach approval</label>
+                <input type="file" id="file-approval" hidden accept=".pdf,.jpg,.jpeg,.png,.eml" onChange={(e) => {
+                  const f = e.target.files[0]; e.target.value = '';
+                  if (!f) return; const m = validateFile('MOHApproval', f.name, f.size); if (m) setErr({ approvalFile: m }); else { setFile(f); setErr({}); }
+                }} /></div>
+            )}
+            <FieldError msg={err.approvalFile || err.approvals} /></div>
+          <button className="btn brand block" disabled={!choice} onClick={accept}><Icon name="checkc" />Accept and confirm</button>
+        </>
+      ) : mode === 'cancel' ? (
+        <>
+          <p className="hint" style={{ margin: 0 }}>The request will be closed as Withdrawn. The coordination team is told that no action is needed. This cannot be undone.</p>
+          <button className="btn danger block" onClick={withdraw}><Icon name="x" />Withdraw request</button>
+        </>
+      ) : canAskAgain ? (
+        <>
+          <div><label htmlFor="ao-reason" className="small" style={{ fontWeight: 600 }}>Why don't these dates work? <span style={{ color: 'var(--bad-fg)' }}>*</span></label>
+            <textarea id="ao-reason" className="input" style={{ marginTop: 6 }} maxLength={REASON_MAX} value={reason} onChange={(e) => { setReason(e.target.value); setErr({}); }}
+              placeholder="e.g. The patient's flights are fixed; could you offer 20–27 Nov?" />
+            <div className="counter"><span>Minimum 10 characters</span><span>{reason.length} / {REASON_MAX}</span></div><FieldError msg={err.reason} /></div>
+          <button className="btn primary block" disabled={reason.trim().length < 10} onClick={askAgain}><Icon name="send" />Ask for other dates</button>
+          <p className="hint" style={{ margin: 0 }}>If the trip is no longer needed, withdraw the request instead (link below the details).</p>
+        </>
+      ) : <div className="waiting"><Icon name="info" /><span>{askBlocked || 'Asking for other dates isn’t available.'} You can still withdraw the request.</span></div>}
+    </div>
+  );
+}
+
+/** Confirmed sessions: limited to the requested dates ± the allowed tolerance, with the requested dates shaded. */
+function SessionsPicker({ r, start, end, onChange, invalid }) {
+  const tol = CONFIRMED_DATES_TOLERANCE_DAYS;
+  const min = r.travelStart ? addDaysIso(r.travelStart, -tol) : undefined;
+  const max = r.travelEnd ? addDaysIso(r.travelEnd, tol) : undefined;
+  return (
+    <DateRangePicker ariaLabel="Confirmed session dates" placeholder="Choose first and last session" months={1} sameDay
+      start={start} end={end} min={min} max={max} invalid={invalid} onChange={onChange}
+      reference={{ start: r.travelStart, end: r.travelEnd, label: 'Requested' }}
+      presets={[{ label: 'Same as requested', start: r.travelStart, end: r.travelEnd }]} />
+  );
+}
+
+/** +966501234567 → +966 50 123 4567; other countries: +CC then groups of 3 (country code length by ITU zone). */
+function fmtPhone(v) {
+  const s = String(v || '');
+  const m = /^\+966(5\d)(\d{3})(\d{4})$/.exec(s);
+  if (m) return `+966 ${m[1]} ${m[2]} ${m[3]}`;
+  const d = s.replace(/^\+/, '');
+  if (!/^\d{8,15}$/.test(d)) return s;
+  const two = d.slice(0, 2);
+  const len = '17'.includes(d[0]) ? 1
+    : d[0] === '2' ? (['20', '27'].includes(two) ? 2 : 3)
+      : '34'.includes(d[0]) ? (['35', '37', '38', '42'].includes(two) ? 3 : 2)
+        : d[0] === '5' ? (['50', '59'].includes(two) ? 3 : 2)
+          : d[0] === '6' ? (Number(two) <= 66 ? 2 : 3)
+            : d[0] === '8' ? (['81', '82', '84', '86'].includes(two) ? 2 : 3)
+              : d[0] === '9' ? (['90', '91', '92', '93', '94', '95', '98'].includes(two) ? 2 : 3) : 2;
+  const rest = d.slice(len); const groups = [];
+  for (let i = 0; i < rest.length;) { const left = rest.length - i; const n = left === 4 ? 4 : 3; groups.push(rest.slice(i, i + n)); i += n; }
+  return `+${d.slice(0, len)} ${groups.join(' ')}`;
 }

@@ -6,17 +6,19 @@ import { query, withTx, params } from '../db/pool.js';
 import { config } from '../config.js';
 import {
   STATUS, ACTIONS, DEST, FACILITY_TYPE, FACILITY_TYPE_FOR_DEST, ROLES, STATUS_ORDER, ACTIVE_STATUSES,
-  CONTENT_TYPES, WIZARD_DOC_TYPES, KPI_DEFS, kpiKeysFor, STATUS_META, DEST_LABELS,
+  CONTENT_TYPES, WIZARD_DOC_TYPES, KPI_DEFS, kpiKeysFor, STATUS_META, DEST_LABELS, MAX_DATE_OPTIONS,
 } from '../domain/constants.js';
 import { canView, visibilitySql, hasRole, inClinic, isCoordination } from '../domain/access.js';
 import { checkAction, allowedActions, pendingActions, nextStatus, pendingInfo, waitingOn } from '../domain/workflow.js';
 import {
-  validateForSubmit, validateFile, validateReason, validateConfirmedDates, isEmail, fileExtension, maskMrn, shortName,
+  validateForSubmit, validateFile, validateReason, validateConfirmedDates, isEmail, fileExtension, maskMrn, shortName, validateDateOptions,
+  normalizeMobile, validateMobile,
 } from '../domain/validation.js';
 import { todayIn, isIsoDate, fmtRange } from '../domain/dates.js';
 import { mergeValues, renderTemplate } from '../domain/templates.js';
 import { AppError, notFound, forbidden, conflict, badRequest, validationFailed, fromWorkflow } from '../lib/errors.js';
 import { audit } from './audit.js';
+import { currentFieldRules } from './formSettings.js';
 import { notify, flushEmails, getActiveTemplate } from './notifications.js';
 import { userIdsWithRole } from './users.js';
 import { storage, storageKey } from './storage.js';
@@ -27,7 +29,7 @@ import { explainSmtpError } from '../lib/smtp.js';
 const today = () => todayIn(config.timeZone);
 const isUuid = (s) => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 const NOW = Symbol('now');
-const ACTIVE_SQL = `('PendingClinicResponse','PendingProviderEmail','SentToProviderAwaitingResponse')`;
+const ACTIVE_SQL = `('PendingClinicResponse','PendingProviderEmail','SentToProviderAwaitingResponse','AlternativeDatesProposed')`;
 const NOT_FOUND_MSG = 'Request not found, or you do not have access to it.';
 
 // ------------------------------------------------------------------ row mapping
@@ -40,7 +42,8 @@ const REQ_COLS = `
   r.receiving_facility_id, xf.facility_name AS receiving_facility_name,
   r.selected_facility_id, sf.facility_name AS selected_facility_name,
   r.patient_reference_id, coalesce(p.full_name, r.draft_patient_name) AS patient_name, coalesce(p.mrn, r.draft_patient_mrn) AS mrn,
-  coalesce(p.identifier_type, r.draft_identifier_type) AS identifier_type, p.national_identifier_last2, p.modality`;
+  coalesce(p.identifier_type, r.draft_identifier_type) AS identifier_type, p.national_identifier_last2, p.modality,
+  (SELECT count(*)::int FROM request_date_proposal dp WHERE dp.request_id = r.id) AS proposal_rounds`;
 const REQ_FROM = `
   FROM holiday_dialysis_request r
   JOIN portal_user cu ON cu.id = r.created_by_user_id
@@ -65,7 +68,7 @@ function mapRequest(x) {
     selectedFacilityId: x.selected_facility_id, selectedFacilityName: x.selected_facility_name,
     patientId: x.patient_reference_id, patientName: x.patient_name, mrn: x.mrn, identifierType: x.identifier_type,
     identifierMasked: x.national_identifier_last2 ? `••••••••${x.national_identifier_last2}` : null,
-    modality: x.modality,
+    modality: x.modality, proposalRounds: Number(x.proposal_rounds ?? 0),
   };
 }
 
@@ -98,7 +101,8 @@ function listSource(p, t) {
 
 const KPI_SQL = {
   inprog: () => `x.current_status IN ${ACTIVE_SQL}`,
-  mine: (p, u) => `(x.current_status = 'PendingClinicResponse' AND x.receiving_facility_id = ANY(${p(u.clinicIds)}::uuid[]))`,
+  mine: (p, u) => `((x.current_status = 'PendingClinicResponse' AND x.receiving_facility_id = ANY(${p(u.clinicIds)}::uuid[]))
+    OR (x.current_status = 'AlternativeDatesProposed' AND x.requesting_facility_id = ANY(${p(u.clinicIds)}::uuid[])))`,
   conf: () => `x.current_status = 'Confirmed'`,
   drafts: () => `x.current_status = 'Draft'`,
   toemail: () => `x.current_status = 'PendingProviderEmail'`,
@@ -221,6 +225,8 @@ export async function getDetail(user, id) {
     query(`SELECT generated_at FROM generated_letter WHERE request_id = $1 ORDER BY generated_at DESC LIMIT 1`, [id]),
     loadSla(),
   ]);
+  const proposals = await loadProposals(id);
+  const contacts = await loadContacts((t, v) => query(t, v), id);
   const dec = decision.rows[0];
   const detail = {
     ...r,
@@ -239,6 +245,8 @@ export async function getDetail(user, id) {
       at: c.sent_at, deliveryStatus: c.delivery_status, facilityName: c.facility_name, byName: c.by_name, body: c.body,
     })),
     letterGeneratedAt: letter.rows[0]?.generated_at || null,
+    proposals,
+    contacts,
     pending: pendingInfo(r, sla, t),
     waitingOn: waitingOn(r),
     allowedActions: allowedActions(r, user, t),
@@ -341,6 +349,13 @@ function sanitizeDraft(body = {}) {
   if (s != null && s !== '' && !(Number.isInteger(Number(s)) && Number(s) > 0)) errors.sessionsRequired = 'Enter a whole number of 1 or more.';
   out.sessionsRequired = Number.isInteger(Number(s)) && Number(s) > 0 ? Number(s) : null;
   out.modApplies = body.modApplies === true;
+  // contact numbers: drafts may be incomplete, but anything typed must be a valid mobile number
+  for (const k of ['patientMobile', 'relativeMobile']) {
+    const raw = cleanStr(body[k], 30);
+    if (raw && validateMobile(raw)) errors[k] = validateMobile(raw);
+    out[k] = raw ? normalizeMobile(raw) : null;
+  }
+  out.relativeName = cleanStr(body.relativeName, 100);
   if (out.travelStart && out.travelEnd && out.travelEnd <= out.travelStart) errors.travelEnd = 'Travel end date must be after the start date.';
   if (Object.keys(errors).length) throw validationFailed(errors);
   return out;
@@ -355,6 +370,21 @@ async function checkFacilityForDraft(c, d, homeClinicId) {
     throw validationFailed({ receivingFacilityId: 'This facility does not match the destination type.' });
   }
   if (f.id === homeClinicId) throw validationFailed({ receivingFacilityId: 'The receiving clinic cannot be your own clinic.' });
+}
+
+/** SQL fragment that encrypts a value with the field key (NULL stays NULL). */
+function encOrNull(p, v) {
+  const vp = p(v ?? null);
+  return `CASE WHEN ${vp}::text IS NULL THEN NULL ELSE pgp_sym_encrypt(${vp}::text, ${p(config.fieldKey)}) END`;
+}
+
+/** Patient and relative mobile numbers (decrypted) — only ever loaded for someone allowed to see the request. */
+async function loadContacts(run, id) {
+  const { rows } = await run(
+    `SELECT CASE WHEN patient_mobile_enc IS NULL THEN NULL ELSE pgp_sym_decrypt(patient_mobile_enc, $2) END AS pm,
+            CASE WHEN relative_mobile_enc IS NULL THEN NULL ELSE pgp_sym_decrypt(relative_mobile_enc, $2) END AS rm, relative_name
+       FROM holiday_dialysis_request WHERE id = $1`, [id, config.fieldKey]);
+  return { patientMobile: rows[0]?.pm || null, relativeMobile: rows[0]?.rm || null, relativeName: rows[0]?.relative_name || null };
 }
 
 async function writeDraftFields(c, user, r, d) {
@@ -378,7 +408,9 @@ async function writeDraftFields(c, user, r, d) {
        receiving_facility_id = ${p(d.receivingFacilityId)},
        free_text_facility = ${p(d.destinationType === DEST.INTERNATIONAL && !d.receivingFacilityId ? d.freeTextFacility : null)},
        travel_start_date = ${p(d.travelStart)}, travel_end_date = ${p(d.travelEnd)}, sessions_required = ${p(d.sessionsRequired)},
-       mod_applies = ${p(d.modApplies)}, updated_at = now(), row_version = row_version + 1
+       mod_applies = ${p(d.modApplies)},
+       patient_mobile_enc = ${encOrNull(p, d.patientMobile)}, relative_mobile_enc = ${encOrNull(p, d.relativeMobile)}, relative_name = ${p(d.relativeName)},
+       updated_at = now(), row_version = row_version + 1
      WHERE id = $1`,
     values,
   );
@@ -483,8 +515,10 @@ async function draftInputs(c, r) {
          FROM holiday_dialysis_request WHERE id = $1`, [r.id, config.fieldKey]);
     identifier = rows[0]?.v ?? null;
   }
+  const contacts = await loadContacts(c.query.bind(c), r.id);
   return {
     d: {
+      ...contacts,
       patient: r.patientId ? { id: r.patientId } : { name: r.patientName, mrn: r.mrn, identifierType: r.identifierType, identifier },
       destinationType: r.destinationType, destinationCountry: r.destinationCountry, destinationCity: r.destinationCity,
       receivingFacilityId: r.receivingFacilityId, freeTextFacility: r.freeTextFacility,
@@ -530,7 +564,7 @@ export async function submit(user, id, { rowVersion, confirm }) {
     const { c, r } = ctx;
     const { d, identifier } = await draftInputs(c, r);
     const { rows: docRows } = await c.query('SELECT document_type FROM request_document WHERE request_id = $1 AND is_current', [r.id]);
-    const v = validateForSubmit(d, docRows.map((x) => x.document_type), ctx.today);
+    const v = validateForSubmit(d, docRows.map((x) => x.document_type), ctx.today, await currentFieldRules(ctx.c));
     if (v) throw validationFailed(v.errors, 'Some details are missing or invalid.', { step: v.step });
     await assertDestinationTarget(c, r);
     const patientId = r.patientId || (await resolveManualPatient(c, r, identifier));
@@ -712,8 +746,9 @@ export async function resendToProvider(user, id, { rowVersion }, ip) {
 
 export async function recordProviderResponse(user, id, body, file, ip) {
   const outcome = body.outcome;
-  const action = outcome === 'Approved' ? ACTIONS.RECORD_PROVIDER_APPROVED : outcome === 'Declined' ? ACTIONS.RECORD_PROVIDER_DECLINED : null;
-  if (!action) throw validationFailed({ outcome: 'Choose Approved or Declined.' });
+  const action = outcome === 'Approved' ? ACTIONS.RECORD_PROVIDER_APPROVED : outcome === 'Declined' ? ACTIONS.RECORD_PROVIDER_DECLINED
+    : outcome === 'Alternative' ? ACTIONS.RECORD_PROVIDER_ALTERNATIVE : null;
+  if (!action) throw validationFailed({ outcome: 'Choose Approved, Other dates or Declined.' });
   if (file) {
     const ferr = validateFile('ProviderReply', file.originalname, file.size);
     if (ferr) throw validationFailed({ replyFile: ferr });
@@ -722,7 +757,13 @@ export async function recordProviderResponse(user, id, body, file, ip) {
     const { c, r, cleanup } = ctx;
     let notes = null;
     let reason = null;
-    if (outcome === 'Approved') {
+    let options = null;
+    if (outcome === 'Alternative') {
+      options = parseOptions(body.options);
+      const errs = validateDateOptions(options, ctx.today, { max: MAX_DATE_OPTIONS });
+      if (Object.keys(errs).length) throw validationFailed(errs);
+      notes = cleanStr(body.notes, 1000);
+    } else if (outcome === 'Approved') {
       const err = validateConfirmedDates(r, body.confirmedStart, body.confirmedEnd);
       if (err) throw validationFailed({ confirmedDates: err });
       notes = cleanStr(body.notes, 1000);
@@ -748,10 +789,12 @@ export async function recordProviderResponse(user, id, body, file, ip) {
     await c.query(
       `INSERT INTO provider_communication (request_id, facility_id, direction, message_type, subject, body, sent_by_user_id, delivery_status, reply_document_id)
        VALUES ($1, $2, 'Inbound', 'Reply', $3, $4, $5, 'Recorded', $6)`,
-      [r.id, r.selectedFacilityId, `Provider reply recorded – ${outcome}`, notes || reason, user.id, replyDocId],
+      [r.id, r.selectedFacilityId, `Provider reply recorded – ${outcome === 'Alternative' ? 'Other dates proposed' : outcome}`, notes || reason, user.id, replyDocId],
     );
     const facilityName = r.selectedFacilityName || r.freeTextFacility || 'the provider';
-    if (outcome === 'Approved') {
+    if (outcome === 'Alternative') {
+      await createProposal(ctx, { source: 'ExternalProvider', options, message: notes, replyDocId, decider: facilityName });
+    } else if (outcome === 'Approved') {
       await recordDecision(c, r, user, { type: 'Approved', source: 'ExternalProvider', start: body.confirmedStart, end: body.confirmedEnd, notes });
       await transition(ctx, action, {
         title: 'Provider response recorded – Approved',
@@ -777,10 +820,174 @@ export async function recordProviderResponse(user, id, body, file, ip) {
   return getDetail(user, id);
 }
 
+// ------------------------------------------------------------------ other dates proposed (instead of declining)
+function parseOptions(raw) {
+  let list = raw;
+  if (typeof raw === 'string') { try { list = JSON.parse(raw); } catch { list = []; } }
+  return (Array.isArray(list) ? list : []).slice(0, 10).map((o) => ({
+    start: String(o?.start ?? '').trim(), end: String(o?.end ?? '').trim(),
+    sessions: o?.sessions === '' || o?.sessions == null ? null : Number(o.sessions), note: cleanStr(o?.note, 300),
+  })).filter((o) => o.start || o.end || o.sessions || o.note);
+}
+
+async function loadProposals(requestId) {
+  const { rows } = await query(
+    `SELECT p.id, p.round_no, p.proposal_source, p.message, p.reply_document_id, p.proposed_at, p.outcome, p.accepted_option_id,
+            p.response_note, p.responded_at, pu.display_name AS proposed_by, ru.display_name AS responded_by,
+            coalesce(json_agg(json_build_object('id', o.id, 'no', o.option_no, 'start', o.start_date, 'end', o.end_date, 'sessions', o.sessions, 'note', o.note)
+                     ORDER BY o.option_no) FILTER (WHERE o.id IS NOT NULL), '[]') AS options
+       FROM request_date_proposal p
+       JOIN portal_user pu ON pu.id = p.proposed_by_user_id
+       LEFT JOIN portal_user ru ON ru.id = p.responded_by_user_id
+       LEFT JOIN request_date_option o ON o.proposal_id = p.id
+      WHERE p.request_id = $1 GROUP BY p.id, pu.display_name, ru.display_name ORDER BY p.round_no`, [requestId]);
+  return rows.map((x) => ({
+    id: x.id, round: x.round_no, source: x.proposal_source, message: x.message, replyDocumentId: x.reply_document_id,
+    proposedAt: x.proposed_at, proposedBy: x.proposed_by, outcome: x.outcome, acceptedOptionId: x.accepted_option_id,
+    responseNote: x.response_note, respondedAt: x.responded_at, respondedBy: x.responded_by,
+    options: (typeof x.options === 'string' ? JSON.parse(x.options) : x.options)
+      .map((o) => ({ ...o, start: String(o.start).slice(0, 10), end: String(o.end).slice(0, 10) })),
+  }));
+}
+
+const optionText = (o) => `${fmtRange(o.start, o.end)}${o.sessions ? ` (${o.sessions} sessions)` : ''}`;
+
+/** Save a proposal + options, move the request to "Other dates proposed" and tell the requester. */
+async function createProposal(ctx, { source, options, message, replyDocId = null, decider }) {
+  const { c, r, user } = ctx;
+  const round = (r.proposalRounds ?? 0) + 1;
+  const { rows } = await c.query(
+    `INSERT INTO request_date_proposal (request_id, round_no, proposal_source, message, reply_document_id, proposed_by_user_id)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`, [r.id, round, source, message, replyDocId, user.id]);
+  const pid = rows[0].id;
+  for (let i = 0; i < options.length; i++) {
+    const o = options[i];
+    await c.query('INSERT INTO request_date_option (proposal_id, option_no, start_date, end_date, sessions, note) VALUES ($1, $2, $3, $4, $5, $6)',
+      [pid, i + 1, o.start, o.end, o.sessions ?? null, o.note ?? null]);
+  }
+  const action = source === 'ExternalProvider' ? ACTIONS.RECORD_PROVIDER_ALTERNATIVE : ACTIONS.PROPOSE_DATES;
+  const list = options.map((o, i) => `Option ${i + 1}: ${optionText(o)}${o.note ? ` – ${o.note}` : ''}`).join('\n');
+  await transition(ctx, action, {
+    title: source === 'ExternalProvider' ? 'Provider proposed other dates' : 'Receiving clinic proposed other dates',
+    note: `${list}${message ? `\n${message}` : ''}`,
+  });
+  await queueNotify(ctx, {
+    userIds: [r.createdBy], type: 'DatesProposed', title: 'Other dates proposed',
+    message: `${r.requestNumber}: ${decider} can't take the requested dates and proposed ${options.length} option${options.length === 1 ? '' : 's'}. Choose one or ask for other dates.`,
+    email: { templateCode: 'DatesProposed', values: mergeValues(r) },
+  });
+}
+
+export async function proposeDates(user, id, body = {}) {
+  await runAction(user, id, ACTIONS.PROPOSE_DATES, body.rowVersion, async (ctx) => {
+    const options = parseOptions(body.options);
+    const errs = validateDateOptions(options, ctx.today, { max: MAX_DATE_OPTIONS });
+    if (Object.keys(errs).length) throw validationFailed(errs);
+    await createProposal(ctx, { source: 'ReceivingDiaverumClinic', options, message: cleanStr(body.message, 1000), decider: ctx.r.receivingFacilityName });
+  });
+  return getDetail(user, id);
+}
+
+async function openProposal(c, requestId) {
+  const { rows } = await c.query(`SELECT id, proposal_source FROM request_date_proposal WHERE request_id = $1 AND outcome = 'Open' FOR UPDATE`, [requestId]);
+  if (!rows[0]) throw conflict('There are no open date proposals on this request. Reload to see the latest version.');
+  return rows[0];
+}
+
+/** Requester accepts one option: the request is confirmed for those dates (travel dates updated, letter generated). */
+export async function acceptProposedDates(user, id, body = {}, file = null, ip = null) {
+  if (file) {
+    const ferr = validateFile('MOHApproval', file.originalname, file.size);
+    if (ferr) throw validationFailed({ approvalFile: ferr });
+  }
+  await runAction(user, id, ACTIONS.ACCEPT_PROPOSED_DATES, body.rowVersion, async (ctx) => {
+    const { c, r, cleanup } = ctx;
+    const prop = await openProposal(c, r.id);
+    const { rows: opts } = await c.query('SELECT id, option_no, start_date, end_date, sessions FROM request_date_option WHERE proposal_id = $1 AND id = $2',
+      [prop.id, isUuid(body.optionId) ? body.optionId : null]);
+    const o = opts[0];
+    if (!o) throw validationFailed({ optionId: 'Choose one of the proposed options.' });
+    const start = String(o.start_date).slice(0, 10);
+    const end = String(o.end_date).slice(0, 10);
+    if (start < ctx.today) throw validationFailed({ optionId: 'This option has already started. Ask for other dates instead.' });
+    const confirmed = body.approvalsConfirmed === true || body.approvalsConfirmed === 'true';
+    if (!confirmed && !file) {
+      throw validationFailed({ approvals: 'Confirm that the MOH (and MOD) approval covers the new dates, or attach an updated approval.' });
+    }
+    if (file) { // updated MOH approval replaces the current one (the old file is kept, marked not current)
+      const ext = fileExtension(file.originalname);
+      const key = storageKey(r.id, file.originalname);
+      await storage.put(key, file.buffer, CONTENT_TYPES[ext]);
+      cleanup.push(key);
+      const hash = crypto.createHash('sha256').update(file.buffer).digest('hex');
+      await c.query(`UPDATE request_document SET is_current = false WHERE request_id = $1 AND document_type = 'MOHApproval' AND is_current`, [r.id]);
+      await c.query(
+        `INSERT INTO request_document (request_id, document_type, file_name, storage_key, content_type, file_size_bytes, file_hash, uploaded_by_user_id)
+         VALUES ($1, 'MOHApproval', $2, $3, $4, $5, $6, $7)`, [r.id, file.originalname.slice(-200), key, CONTENT_TYPES[ext], file.size, hash, user.id]);
+    }
+    const before = fmtRange(r.travelStart, r.travelEnd);
+    await c.query(
+      `UPDATE request_date_proposal SET outcome = 'Accepted', accepted_option_id = $2, response_note = $3, responded_by_user_id = $4, responded_at = now() WHERE id = $1`,
+      [prop.id, o.id, file ? 'Updated MOH approval attached.' : 'Requester confirmed the approvals cover the new dates.', user.id]);
+    await c.query(
+      'UPDATE holiday_dialysis_request SET travel_start_date = $2, travel_end_date = $3, sessions_required = coalesce($4, sessions_required) WHERE id = $1',
+      [r.id, start, end, o.sessions]);
+    Object.assign(r, { travelStart: start, travelEnd: end, sessionsRequired: o.sessions ?? r.sessionsRequired });
+    await recordDecision(c, r, user, { type: 'Approved', source: prop.proposal_source, start, end, notes: `Proposed option ${o.option_no} accepted by the requesting clinic.` });
+    await transition(ctx, ACTIONS.ACCEPT_PROPOSED_DATES, {
+      title: 'Proposed dates accepted',
+      note: `Option ${o.option_no}: ${optionText({ start, end, sessions: o.sessions })}. Travel dates changed from ${before}.${file ? ' Updated MOH approval attached.' : ''}`,
+      set: { confirmed_at: NOW },
+    });
+    const values = mergeValues({ ...r, decision: { confirmedStart: start, confirmedEnd: end } });
+    if (r.destinationType === DEST.INTERNAL) {
+      await queueNotify(ctx, {
+        userIds: [...(await userIdsWithRole(c, ROLES.CLINIC_STAFF, r.receivingFacilityId)), ...(await userIdsWithRole(c, ROLES.COORD_INTERNAL))],
+        type: 'Confirmed', title: 'Proposed dates accepted',
+        message: `${r.requestNumber}: ${r.requestingFacilityName} accepted ${fmtRange(start, end)}. The request is confirmed.`,
+        email: { templateCode: 'Confirmed', values },
+      });
+    } else {
+      await queueNotify(ctx, {
+        userIds: await userIdsWithRole(c, ROLES.COORD_INTERNATIONAL), type: 'Confirmed', title: 'Proposed dates accepted – tell the provider',
+        message: `${r.requestNumber}: the patient accepted ${fmtRange(start, end)} from ${r.selectedFacilityName || r.freeTextFacility || 'the provider'}. Let the provider know.`,
+        email: { templateCode: 'Confirmed', values },
+      });
+    }
+    await audit(c, { user, action: 'ProposedDatesAccepted', entityType: 'Request', entityId: r.requestNumber, detail: { option: o.option_no, start, end, approvalAttached: !!file }, ip });
+  });
+  return getDetail(user, id);
+}
+
+/** Requester can't use any option: back to the receiving clinic (Internal) or the coordination team (External). */
+export async function requestOtherDates(user, id, body = {}) {
+  await runAction(user, id, ACTIONS.REQUEST_OTHER_DATES, body.rowVersion, async (ctx) => {
+    const { c, r } = ctx;
+    const err = validateReason(body.reason, 'reason');
+    if (err) throw validationFailed({ reason: err });
+    const text = body.reason.trim();
+    const prop = await openProposal(c, r.id);
+    await c.query(`UPDATE request_date_proposal SET outcome = 'OtherDatesRequested', response_note = $2, responded_by_user_id = $3, responded_at = now() WHERE id = $1`,
+      [prop.id, text, user.id]);
+    await transition(ctx, ACTIONS.REQUEST_OTHER_DATES, { title: 'Other dates requested', note: text });
+    const internal = r.destinationType === DEST.INTERNAL;
+    await queueNotify(ctx, {
+      userIds: internal ? await userIdsWithRole(c, ROLES.CLINIC_STAFF, r.receivingFacilityId) : await userIdsWithRole(c, ROLES.COORD_INTERNATIONAL),
+      type: 'OtherDatesRequested', title: 'Different dates requested',
+      message: internal
+        ? `${r.requestNumber}: ${r.requestingFacilityName} can't use the proposed dates. Please propose others, approve or reject.`
+        : `${r.requestNumber}: the requesting clinic can't use the provider's dates. Contact the provider again.`,
+      email: { templateCode: 'OtherDatesRequested', values: mergeValues({ ...r, decision: { reason: text } }) },
+    });
+  });
+  return getDetail(user, id);
+}
+
 // ------------------------------------------------------------------ withdraw, complete, comments, letter (§7 Other actions)
 export async function withdraw(user, id, { rowVersion }) {
   await runAction(user, id, ACTIONS.WITHDRAW, rowVersion, async (ctx) => {
     const { c, r } = ctx;
+    await c.query(`UPDATE request_date_proposal SET outcome = 'Withdrawn', responded_by_user_id = $2, responded_at = now() WHERE request_id = $1 AND outcome = 'Open'`, [r.id, user.id]);
     await transition(ctx, ACTIONS.WITHDRAW, { title: 'Request withdrawn', note: 'Withdrawn by the requesting clinic.' });
     const recipients = r.destinationType === DEST.INTERNAL
       ? [...(await userIdsWithRole(c, ROLES.COORD_INTERNAL)), ...(await userIdsWithRole(c, ROLES.CLINIC_STAFF, r.receivingFacilityId))]

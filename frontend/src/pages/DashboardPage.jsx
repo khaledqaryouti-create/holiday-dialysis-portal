@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, qs } from '../api.js';
 import { useAuth, roleHelpers } from '../auth.jsx';
 import { Icon } from '../components/Icon.jsx';
+import DateRangePicker from '../components/DateRangePicker.jsx';
 import { StatusPill, DestChip, DaysPending, ErrorBox, Loading } from '../components/ui.jsx';
 import { STATUS_ORDER, STATUS_META, DEST_LABELS } from '@domain/constants.js';
 import { visibleDestinationTypes } from '@domain/access.js';
@@ -129,10 +130,8 @@ export default function DashboardPage() {
               </select></div>
           )}
           <div className="f"><span className="lbl">Travel start between</span>
-            <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
-              <input type="date" className="input" aria-label="From" value={f.from} onChange={(e) => set({ from: e.target.value })} />
-              <input type="date" className="input" aria-label="To" value={f.to} onChange={(e) => set({ to: e.target.value })} />
-            </div>
+            <DateRangePicker ariaLabel="Travel start between" placeholder="Any date" sameDay start={f.from || ''} end={f.to || ''}
+              onChange={(v) => set({ from: v.start, to: v.end })} />
           </div>
           <div className="row" style={{ gap: 8 }}>
             <button className="btn ghost sm" onClick={() => { setQ(''); setSp({}, { replace: true }); }}>Clear filters</button>

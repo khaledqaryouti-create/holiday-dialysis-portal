@@ -52,6 +52,12 @@ requestsRouter.get('/:id/documents/:docId', ah(async (req, res) => {
 // Workflow actions — every body may include rowVersion for optimistic locking
 requestsRouter.post('/:id/submit', ah(async (req, res) => res.json(await svc.submit(req.user, req.params.id, req.body || {}))));
 requestsRouter.post('/:id/approve', ah(async (req, res) => res.json(await svc.approve(req.user, req.params.id, req.body || {}))));
+// Other dates instead of declining: receiving clinic proposes; requester accepts one (optional updated MOH approval) or asks again.
+requestsRouter.post('/:id/propose-dates', ah(async (req, res) => res.json(await svc.proposeDates(req.user, req.params.id, req.body || {}))));
+requestsRouter.post('/:id/accept-proposed-dates', upload.single('approvalFile'), ah(async (req, res) => {
+  res.json(await svc.acceptProposedDates(req.user, req.params.id, req.body || {}, req.file || null, req.ip));
+}));
+requestsRouter.post('/:id/request-other-dates', ah(async (req, res) => res.json(await svc.requestOtherDates(req.user, req.params.id, req.body || {}))));
 requestsRouter.post('/:id/reject', ah(async (req, res) => res.json(await svc.reject(req.user, req.params.id, req.body || {}))));
 requestsRouter.get('/:id/provider-email', ah(async (req, res) => {
   res.json(await svc.previewProviderEmail(req.user, req.params.id, { facilityId: req.query.facilityId, recipientEmail: req.query.recipientEmail }));

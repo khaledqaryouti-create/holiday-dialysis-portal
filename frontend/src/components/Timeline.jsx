@@ -10,10 +10,13 @@ export function milestones(r) {
   const ms = [{ label: 'Submitted', ev: find(['PendingClinicResponse', 'PendingProviderEmail']) }];
   if (!internal) ms.push({ label: 'Emailed to provider', ev: find(['SentToProviderAwaitingResponse']), wait: 'Coordination team' });
   const dec = find(['Confirmed', 'Rejected']);
+  const proposed = H.some((h) => h.to === 'AlternativeDatesProposed');
   ms.push({
-    label: dec ? (dec.to === 'Confirmed' ? (internal ? 'Clinic approved' : 'Provider approved') : (internal ? 'Clinic rejected' : 'Provider declined'))
-      : (internal ? 'Clinic response' : 'Provider response'),
-    ev: dec, bad: dec?.to === 'Rejected', wait: internal ? 'Receiving clinic' : 'Provider',
+    label: dec ? (dec.to === 'Confirmed' ? (dec.action === 'acceptProposedDates' ? 'Other dates agreed' : internal ? 'Clinic approved' : 'Provider approved') : (internal ? 'Clinic rejected' : 'Provider declined'))
+      : r.status === 'AlternativeDatesProposed' ? 'Other dates proposed' : (internal ? 'Clinic response' : 'Provider response'),
+    ev: dec, bad: dec?.to === 'Rejected',
+    wait: r.status === 'AlternativeDatesProposed' ? 'Requesting clinic' : internal ? 'Receiving clinic' : 'Provider',
+    sub: r.status === 'AlternativeDatesProposed' ? 'Waiting: requesting clinic to choose' : proposed && !dec ? `Waiting: ${internal ? 'receiving clinic' : 'provider'} (other dates asked)` : undefined,
   });
   if (dec?.to !== 'Rejected') ms.push({ label: 'Completed', ev: find(['Completed']), wait: 'After travel ends' });
   const wd = find(['Withdrawn']);

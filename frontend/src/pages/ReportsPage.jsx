@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, qs } from '../api.js';
 import { useAuth, roleHelpers } from '../auth.jsx';
 import { Icon } from '../components/Icon.jsx';
+import DateRangePicker from '../components/DateRangePicker.jsx';
 import { BarList, Columns } from '../components/Charts.jsx';
 import { Loading, ErrorBox } from '../components/ui.jsx';
 import { STATUS_META, DEST_LABELS, SLA_STAGES } from '@domain/constants.js';
@@ -47,10 +48,9 @@ export default function ReportsPage() {
       </div>
       <div className="card" style={{ marginBottom: 16 }}><div className="filters" style={{ border: 0 }}>
         <div className="f"><span className="lbl">Submitted between</span>
-          <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
-            <input type="date" className="input" aria-label="From" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} />
-            <input type="date" className="input" aria-label="To" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} />
-          </div></div>
+          <DateRangePicker ariaLabel="Submitted between" placeholder="Any date" sameDay start={filters.from || ''} end={filters.to || ''}
+            presets={[{ label: 'Last 90 days', start: new Date(Date.now() - 89 * 86400000).toISOString().slice(0, 10), end: new Date().toISOString().slice(0, 10) }]}
+            onChange={(v) => setFilters({ ...filters, from: v.start, to: v.end })} /></div>
         {h.isCoord && (
           <div className="f"><span className="lbl">Clinic</span>
             <details className="ms"><summary className="input select-like"><span>{filters.clinics.length ? `${filters.clinics.length} selected` : 'All clinics'}</span><Icon name="chev" /></summary>

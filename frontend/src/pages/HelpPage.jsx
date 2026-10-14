@@ -9,6 +9,7 @@ const MEANING = {
   PendingClinicResponse: 'Internal request waiting for the receiving clinic.',
   PendingProviderEmail: 'External request waiting for the coordination team to email the provider.',
   SentToProviderAwaitingResponse: 'Emailed to the provider; waiting for their reply.',
+  AlternativeDatesProposed: 'The receiving clinic or provider offered other dates. The requesting clinic accepts one or asks for others.',
   Confirmed: 'Sessions confirmed. Confirmation letter available.',
   Completed: 'Travel finished and the request is closed.',
   Rejected: 'Not accepted by the clinic or provider.',

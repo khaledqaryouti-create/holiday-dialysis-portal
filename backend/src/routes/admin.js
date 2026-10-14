@@ -10,6 +10,7 @@ import * as email from '../services/emailSettings.js';
 import * as authSettings from '../services/authSettings.js';
 import * as signin from '../services/authentication.js';
 import * as branding from '../services/branding.js';
+import * as formSettings from '../services/formSettings.js';
 import { LOGO_MAX_BYTES, PHOTO_MAX_BYTES } from '../domain/branding.js';
 
 export const adminRouter = Router();
@@ -56,6 +57,9 @@ adminRouter.get('/auth-settings/lockouts', ah(async (_req, res) => res.json(awai
 adminRouter.post('/auth-settings/lockouts/unlock', ah(async (req, res) => { await signin.unlock(req.user, req.body?.username || '', req.ip); res.json({ ok: true }); }));
 adminRouter.post('/users/:id/password', ah(async (req, res) => res.json(await signin.adminSetPassword(req.user, req.params.id, req.body || {}, req.ip))));
 adminRouter.delete('/users/:id/password', ah(async (req, res) => { await signin.adminRemovePassword(req.user, req.params.id, req.ip); res.status(204).end(); }));
+
+adminRouter.get('/form-settings', ah(async (_req, res) => res.json(await formSettings.getFormSettings())));
+adminRouter.put('/form-settings', ah(async (req, res) => res.json(await formSettings.saveFormSettings(req.user, req.body || {}, req.ip))));
 
 // Branding (logo, company / clinic name, contact details) — shown on the sign-in page and header once switched on.
 const logoUpload = (req, res, next) => multer({ storage: multer.memoryStorage(), limits: { fileSize: LOGO_MAX_BYTES, files: 1 } })

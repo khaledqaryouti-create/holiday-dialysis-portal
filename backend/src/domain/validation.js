@@ -1,5 +1,6 @@
 // Field validation (spec §6, §7, §10). Pure functions returning { field: message } maps; empty object = valid.
 // Used by the API (authoritative) and by the React wizard (instant feedback).
+import { DEFAULT_FIELD_RULES, isRequired, isHidden } from './formRules.js';
 import { DEST, DOC_TYPES, MAX_FILE_BYTES, REASON_MIN, REASON_MAX, CONFIRMED_DATES_TOLERANCE_DAYS } from './constants.js';
 import { isIsoDate, addDays, fmtRange } from './dates.js';
 
@@ -17,9 +18,47 @@ export function validateIdentifier(type, value) {
 }
 
 /** Step 1 — Patient & Destination. `d.patient` is either {id} (from the patient list) or manual fields. */
-export function validatePatientStep(d) {
+/**
+ * Mobile numbers: Saudi numbers may be typed locally (05X XXX XXXX or 5X XXX XXXX); others need the country code
+ * (+44 7700 900123 or 0044…). Returns the number in international form (+9665…) or null if it isn't valid.
+ */
+export function normalizeMobile(v) {
+  let s = String(v ?? '').trim().replace(/[\s\-().]/g, '');
+  if (!s) return null;
+  if (s.startsWith('00')) s = `+${s.slice(2)}`;
+  if (/^05\d{8}$/.test(s)) s = `+966${s.slice(1)}`;
+  else if (/^5\d{8}$/.test(s)) s = `+966${s}`;
+  if (!/^\+[1-9]\d{7,14}$/.test(s)) return null;
+  if (s.startsWith('+966') && !/^\+9665\d{8}$/.test(s)) return null; // Saudi mobiles are +966 5X XXX XXXX
+  return s;
+}
+/** Error message for a mobile field, or null. */
+export function validateMobile(v, { required = false, label = 'mobile number' } = {}) {
+  if (blank(v)) return required ? `Enter the ${label}.` : null;
+  return normalizeMobile(v) ? null : 'Enter a mobile number like 05X XXX XXXX, or with the country code, e.g. +44 7700 900123.';
+}
+/** "+966 5•• ••• 4567" style display that hides the middle digits. */
+export function maskMobile(v) {
+  const s = String(v || '');
+  return s.length > 6 ? `${s.slice(0, s.startsWith('+966') ? 5 : 3)}••••${s.slice(-4)}` : s;
+}
+
+export function validatePatientStep(d, rules = DEFAULT_FIELD_RULES) {
   const e = {};
   const p = d.patient || {};
+  if (!isHidden(rules, 'patientMobile')) {
+    const pm = validateMobile(d.patientMobile, { required: isRequired(rules, 'patientMobile', d), label: 'patient’s mobile number' });
+    if (pm) e.patientMobile = pm;
+  }
+  if (!isHidden(rules, 'relativeMobile')) {
+    const rm = validateMobile(d.relativeMobile, { required: isRequired(rules, 'relativeMobile', d), label: 'relative’s mobile number' });
+    if (rm) e.relativeMobile = rm;
+    else if (d.relativeMobile && !isHidden(rules, 'patientMobile') && normalizeMobile(d.relativeMobile) === normalizeMobile(d.patientMobile)) e.relativeMobile = 'Enter a different number from the patient’s, or leave it empty.';
+  }
+  if (!isHidden(rules, 'relativeName')) {
+    if (isRequired(rules, 'relativeName', d) && blank(d.relativeName)) e.relativeName = 'Enter the relative’s name and relationship.';
+    else if (d.relativeName && String(d.relativeName).length > 100) e.relativeName = 'Keep this under 100 characters.';
+  }
   if (!p.id) {
     if (blank(p.name)) e.patientName = 'Enter the patient’s name or choose them from the list.';
     if (blank(p.mrn)) e.mrn = 'Enter the MRN.';
@@ -55,22 +94,23 @@ export function validateDestinationStep(d, today) {
 }
 
 /** Step 3 — Attachments. `docTypes` = array of document types currently uploaded. */
-export function validateAttachmentsStep(d, docTypes) {
+export function validateAttachmentsStep(d, docTypes, rules = DEFAULT_FIELD_RULES) {
   const e = {};
   const has = (t) => docTypes.includes(t);
-  if (!has('MOHApproval')) e.MOHApproval = 'Upload the MOH approval.';
-  if (d.modApplies && !has('MODApproval')) e.MODApproval = 'Upload the MOD approval, or untick “MOD approval applies”.';
-  if (!has('MedicalReport')) e.MedicalReport = 'Upload the medical report.';
-  if (!has('IDCopy')) e.IDCopy = 'Upload a copy of the patient’s ID.';
+  const MSG = {
+    MOHApproval: 'Upload the MOH approval.', MODApproval: 'Upload the MOD approval, or untick “MOD approval applies”.',
+    MedicalReport: 'Upload the medical report.', SerologyReport: 'Upload the serology report.', IDCopy: 'Upload a copy of the patient’s ID.',
+  };
+  for (const t of Object.keys(MSG)) if (isRequired(rules, t, d) && !has(t)) e[t] = MSG[t];
   return e;
 }
 
 /** Everything that must hold before Submit (spec §6.4). Returns { step: 1|2|3, errors } or null. */
-export function validateForSubmit(d, docTypes, today) {
+export function validateForSubmit(d, docTypes, today, rules = DEFAULT_FIELD_RULES) {
   const steps = [
-    [1, validatePatientStep(d)],
+    [1, validatePatientStep(d, rules)],
     [2, validateDestinationStep(d, today)],
-    [3, validateAttachmentsStep(d, docTypes)],
+    [3, validateAttachmentsStep(d, docTypes, rules)],
   ];
   for (const [step, errors] of steps) if (Object.keys(errors).length) return { step, errors };
   return null;
@@ -163,5 +203,28 @@ export function validateEmailSettings(s, { hasSavedPassword = false } = {}) {
   if (s.replyTo && !isEmail(s.replyTo)) e.replyTo = 'Enter a valid reply-to address, or leave it empty.';
   const t = Number(s.timeoutSeconds);
   if (!Number.isInteger(t) || t < 5 || t > 120) e.timeoutSeconds = 'Timeout must be 5–120 seconds.';
+  return e;
+}
+
+/**
+ * Other dates proposed instead of the requested ones: 1–3 options, each a future range (last day after first),
+ * no duplicates, optional sessions (1–60) and note. Returns field errors keyed by `options` / `option{n}`.
+ */
+export function validateDateOptions(options, today, { max = 3 } = {}) {
+  const e = {};
+  const list = Array.isArray(options) ? options.filter((o) => o && (o.start || o.end || o.sessions || o.note)) : [];
+  if (!list.length) return { options: 'Add at least one date option.' };
+  if (list.length > max) return { options: `Propose at most ${max} options.` };
+  const seen = new Set();
+  list.forEach((o, i) => {
+    const k = `option${i + 1}`;
+    if (!isIsoDate(o.start) || !isIsoDate(o.end)) e[k] = 'Enter the first and last session dates.';
+    else if (o.end <= o.start) e[k] = 'The last session date must be after the first.';
+    else if (today && o.start < today) e[k] = 'Dates must be in the future.';
+    else if (seen.has(`${o.start}|${o.end}`)) e[k] = 'This option repeats another one.';
+    else if (o.sessions != null && o.sessions !== '' && !(Number.isInteger(Number(o.sessions)) && Number(o.sessions) >= 1 && Number(o.sessions) <= 60)) e[k] = 'Sessions must be a whole number between 1 and 60.';
+    else if (o.note && String(o.note).length > 300) e[k] = 'Keep the note under 300 characters.';
+    seen.add(`${o.start}|${o.end}`);
+  });
   return e;
 }

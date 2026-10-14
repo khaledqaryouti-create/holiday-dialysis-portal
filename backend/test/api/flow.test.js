@@ -76,7 +76,7 @@ test('internal request: create → upload → submit → approve → letter', as
   assert.equal(pts.status, 200);
   const clinics = await laila.get('/reference/facilities?destinationType=Internal&city=Jeddah');
   const draft = await laila.post('/requests', {
-    patient: { id: pts.body[0].id }, destinationType: 'Internal', destinationCity: 'Jeddah',
+    patient: { id: pts.body[0].id }, patientMobile: '0501234567', relativeMobile: '0559876543', relativeName: 'Test relative (son)', destinationType: 'Internal', destinationCity: 'Jeddah',
     receivingFacilityId: clinics.body[0].id, travelStart: addDays(T, 10), travelEnd: addDays(T, 17), sessionsRequired: 3,
   });
   assert.equal(draft.status, 201);

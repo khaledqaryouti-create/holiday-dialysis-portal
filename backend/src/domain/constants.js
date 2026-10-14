@@ -23,6 +23,7 @@ export const STATUS = Object.freeze({
   PENDING_CLINIC: 'PendingClinicResponse',
   PENDING_PROVIDER_EMAIL: 'PendingProviderEmail',
   SENT_TO_PROVIDER: 'SentToProviderAwaitingResponse',
+  ALT_PROPOSED: 'AlternativeDatesProposed',
   CONFIRMED: 'Confirmed',
   REJECTED: 'Rejected',
   WITHDRAWN: 'Withdrawn',
@@ -30,7 +31,7 @@ export const STATUS = Object.freeze({
 });
 
 export const STATUS_ORDER = [
-  STATUS.DRAFT, STATUS.PENDING_CLINIC, STATUS.PENDING_PROVIDER_EMAIL, STATUS.SENT_TO_PROVIDER,
+  STATUS.DRAFT, STATUS.PENDING_CLINIC, STATUS.PENDING_PROVIDER_EMAIL, STATUS.SENT_TO_PROVIDER, STATUS.ALT_PROPOSED,
   STATUS.CONFIRMED, STATUS.COMPLETED, STATUS.REJECTED, STATUS.WITHDRAWN,
 ];
 
@@ -39,6 +40,7 @@ export const STATUS_META = Object.freeze({
   PendingClinicResponse: { label: 'Pending Clinic Response', short: 'Pending Clinic Response', tone: 'pending' },
   PendingProviderEmail: { label: 'Pending Provider Email', short: 'Pending Provider Email', tone: 'pending' },
   SentToProviderAwaitingResponse: { label: 'Sent to Provider – Awaiting Response', short: 'Awaiting Provider', tone: 'waiting' },
+  AlternativeDatesProposed: { label: 'Other Dates Proposed – Awaiting Requester', short: 'Other dates proposed', tone: 'waiting' },
   Confirmed: { label: 'Confirmed', short: 'Confirmed', tone: 'good' },
   Completed: { label: 'Completed', short: 'Completed', tone: 'done' },
   Rejected: { label: 'Rejected', short: 'Rejected', tone: 'bad' },
@@ -46,7 +48,7 @@ export const STATUS_META = Object.freeze({
 });
 
 /** Statuses where someone still has to act (they count towards "days pending" and SLA). */
-export const ACTIVE_STATUSES = [STATUS.PENDING_CLINIC, STATUS.PENDING_PROVIDER_EMAIL, STATUS.SENT_TO_PROVIDER];
+export const ACTIVE_STATUSES = [STATUS.PENDING_CLINIC, STATUS.PENDING_PROVIDER_EMAIL, STATUS.SENT_TO_PROVIDER, STATUS.ALT_PROPOSED];
 export const TERMINAL_STATUSES = [STATUS.REJECTED, STATUS.WITHDRAWN, STATUS.COMPLETED];
 
 export const DEST = Object.freeze({ INTERNAL: 'Internal', EXTERNAL_KSA: 'ExternalKSA', INTERNATIONAL: 'International' });
@@ -89,6 +91,7 @@ export const SLA_STAGES = Object.freeze([
   { code: 'PendingClinicResponse', label: 'Pending Clinic Response', help: 'Time for the receiving clinic to approve or reject' },
   { code: 'PendingProviderEmail', label: 'Pending Provider Email', help: 'Time for the coordination team to email the provider' },
   { code: 'SentToProviderAwaitingResponse', label: 'Awaiting Provider Response', help: 'Time allowed for the provider to reply' },
+  { code: 'AlternativeDatesProposed', label: 'Answer to Proposed Dates', help: 'Time for the requesting clinic to accept proposed dates or ask for others' },
   { code: 'Completion', label: 'Confirmation to Completion', help: 'Time after travel ends to mark the request completed' },
 ]);
 
@@ -102,11 +105,19 @@ export const ACTIONS = Object.freeze({
   RESEND_TO_PROVIDER: 'resendToProvider',
   RECORD_PROVIDER_APPROVED: 'recordProviderApproved',
   RECORD_PROVIDER_DECLINED: 'recordProviderDeclined',
+  PROPOSE_DATES: 'proposeDates',
+  RECORD_PROVIDER_ALTERNATIVE: 'recordProviderAlternative',
+  ACCEPT_PROPOSED_DATES: 'acceptProposedDates',
+  REQUEST_OTHER_DATES: 'requestOtherDates',
   WITHDRAW: 'withdraw',
   COMPLETE: 'complete',
   COMMENT: 'comment',
   DOWNLOAD_LETTER: 'downloadLetter',
 });
+
+/** Proposing other dates: up to this many options per proposal and this many proposal rounds per request. */
+export const MAX_DATE_OPTIONS = 3;
+export const MAX_PROPOSAL_ROUNDS = 3;
 
 export const REASON_MIN = 10;
 export const REASON_MAX = 500;

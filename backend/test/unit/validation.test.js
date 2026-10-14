@@ -20,8 +20,8 @@ test('identifier rules (§10): national ID 10 digits, passport 6–9 alphanumeri
 
 test('patient step: manual entry needs name, numeric MRN, valid ID; list pick needs only destination', () => {
   const e = validatePatientStep({ patient: { name: '', mrn: '12a', identifierType: 'NationalId', identifier: '1' } });
-  assert.deepEqual(Object.keys(e).sort(), ['destinationType', 'identifier', 'mrn', 'patientName']);
-  assert.deepEqual(validatePatientStep({ patient: { id: 'x' }, destinationType: 'Internal' }), {});
+  assert.deepEqual(Object.keys(e).sort(), ['destinationType', 'identifier', 'mrn', 'patientMobile', 'patientName']);
+  assert.deepEqual(validatePatientStep({ patient: { id: 'x' }, destinationType: 'Internal', patientMobile: '0501234567' }), {});
 });
 
 test('destination step: dates and sessions (§6.2)', () => {
@@ -43,7 +43,7 @@ test('attachments: MOH, medical report and ID copy required; MOD only when it ap
 });
 
 test('validateForSubmit reports the first failing step', () => {
-  const d = { patient: { id: 'p' }, destinationType: 'Internal', destinationCity: 'Jeddah', receivingFacilityId: 'f', travelStart: '2026-10-20', travelEnd: '2026-10-27', sessionsRequired: 3 };
+  const d = { patient: { id: 'p' }, patientMobile: '0501234567', destinationType: 'Internal', destinationCity: 'Jeddah', receivingFacilityId: 'f', travelStart: '2026-10-20', travelEnd: '2026-10-27', sessionsRequired: 3 };
   assert.equal(validateForSubmit(d, ['MOHApproval', 'MedicalReport', 'IDCopy'], TODAY), null);
   assert.equal(validateForSubmit(d, [], TODAY).step, 3);
   assert.equal(validateForSubmit({ ...d, travelEnd: '' }, [], TODAY).step, 2);
@@ -95,4 +95,25 @@ test('date helpers', () => {
   assert.equal(todayIn('Asia/Riyadh', new Date('2026-10-11T22:30:00Z')), '2026-10-12');
   assert.ok(isIsoDate('2026-02-28'));
   assert.equal(isIsoDate('2026-02-30'), false);
+});
+
+test('mobile numbers: Saudi local or international, stored in +country form', async () => {
+  const { normalizeMobile, validateMobile, validatePatientStep, maskMobile } = await import('../../src/domain/validation.js');
+  assert.equal(normalizeMobile('050 123 4567'), '+966501234567');
+  assert.equal(normalizeMobile('0501234567'), '+966501234567');
+  assert.equal(normalizeMobile('501234567'), '+966501234567');
+  assert.equal(normalizeMobile('+966 50-123-4567'), '+966501234567');
+  assert.equal(normalizeMobile('0044 7700 900123'), '+447700900123');
+  assert.equal(normalizeMobile('+962 79 123 4567'), '+962791234567');
+  assert.equal(normalizeMobile('011 123 4567'), null);      // landline-style local number
+  assert.equal(normalizeMobile('+966 11 123 4567'), null);  // Saudi landline
+  assert.equal(normalizeMobile('abc'), null);
+  assert.match(validateMobile('', { required: true, label: 'patient’s mobile number' }), /Enter the patient/);
+  assert.equal(validateMobile(''), null);
+  assert.equal(maskMobile('+966501234567'), '+9665••••4567');
+  const base = { patient: { id: 'p1' }, destinationType: 'Internal' };
+  assert.ok(validatePatientStep(base).patientMobile, 'patient mobile is required');
+  assert.deepEqual(validatePatientStep({ ...base, patientMobile: '0501234567' }), {});
+  assert.match(validatePatientStep({ ...base, patientMobile: '0501234567', relativeMobile: '+966501234567' }).relativeMobile, /different number/);
+  assert.match(validatePatientStep({ ...base, patientMobile: '0501234567', relativeMobile: '12' }).relativeMobile, /mobile number like/);
 });

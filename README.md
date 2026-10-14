@@ -148,6 +148,7 @@ All under `/api`; JSON; session cookie; writes need header `X-Requested-With: hd
 | `POST /requests/:id/documents` (multipart `docType`, `file`), `DELETE …/documents/:docId`, `GET …/documents/:docId` | attachments |
 | `GET /requests/:id` | detail incl. history, documents, comments, emails, `allowedActions` |
 | `POST /requests/:id/submit · approve · reject · send-to-provider · resend-to-provider · provider-response · withdraw · complete · comments` | workflow actions |
+| `POST /requests/:id/propose-dates` (`options[]`, `message`) · `accept-proposed-dates` (multipart `optionId`, `approvalsConfirmed`, optional `approvalFile`) · `request-other-dates` (`reason`); `provider-response` also takes `outcome=Alternative` + `options` | other dates instead of declining |
 | `GET /requests/:id/provider-email` | preview of the provider email |
 | `GET /requests/:id/letter.pdf` | confirmation letter |
 | `GET /reference/patients · facilities · destination-cities · countries · providers` | wizard lookups |

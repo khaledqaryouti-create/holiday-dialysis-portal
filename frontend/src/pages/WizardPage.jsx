@@ -5,9 +5,11 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, qs, ApiError } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { Icon } from '../components/Icon.jsx';
+import DateRangePicker from '../components/DateRangePicker.jsx';
 import { useUi, ErrorBox, FieldError, Loading, fmtSize } from '../components/ui.jsx';
 import { DEST, DEST_LABELS, DOC_TYPES, WIZARD_DOC_TYPES } from '@domain/constants.js';
 import { validatePatientStep, validateDestinationStep, validateAttachmentsStep, validateFile } from '@domain/validation.js';
+import { DEFAULT_FIELD_RULES, DEFAULT_FORM_COLORS, isRequired, isHidden } from '@domain/formRules.js';
 import { todayIn, fmtDate, daysBetween } from '@domain/dates.js';
 import { TZ } from '../lib/format.js';
 
@@ -16,6 +18,7 @@ const blank = () => ({
   patient: { id: null, name: '', mrn: '', identifierType: 'NationalId', identifier: '', identifierMasked: '' },
   destinationType: '', destinationCountry: '', destinationCity: '', receivingFacilityId: '', freeTextFacility: '',
   travelStart: '', travelEnd: '', sessionsRequired: '', modApplies: false,
+  patientMobile: '', relativeMobile: '', relativeName: '',
 });
 
 export default function WizardPage() {
@@ -36,6 +39,10 @@ export default function WizardPage() {
   const [loadError, setLoadError] = useState(null);
   const [loading, setLoading] = useState(!!editId);
   const [otherFacility, setOtherFacility] = useState(false);
+  // Admin Settings → Form Fields (until it loads, the standard rules apply; the server checks again on submit)
+  const [form, setForm] = useState({ rules: DEFAULT_FIELD_RULES, ...DEFAULT_FORM_COLORS });
+  useEffect(() => { api.get('/reference/form-rules').then((f) => f?.rules && setForm(f)).catch(() => {}); }, []);
+  const rules = form.rules;
 
   // ---- load an existing draft
   useEffect(() => {
@@ -48,6 +55,7 @@ export default function WizardPage() {
         destinationType: r.destinationType || '', destinationCountry: r.destinationType === DEST.INTERNATIONAL ? r.destinationCountry || '' : '',
         destinationCity: r.destinationCity || '', receivingFacilityId: r.receivingFacilityId || '', freeTextFacility: r.freeTextFacility || '',
         travelStart: r.travelStart || '', travelEnd: r.travelEnd || '', sessionsRequired: r.sessionsRequired ?? '', modApplies: r.modApplies,
+        patientMobile: r.contacts?.patientMobile || '', relativeMobile: r.contacts?.relativeMobile || '', relativeName: r.contacts?.relativeName || '',
       });
       setOtherFacility(!!r.freeTextFacility);
       setDocs(Object.fromEntries(r.documents.filter((x) => WIZARD_DOC_TYPES.includes(x.type)).map((x) => [x.type, x])));
@@ -65,6 +73,9 @@ export default function WizardPage() {
     destinationType: d.destinationType || null, destinationCountry: d.destinationCountry || null, destinationCity: d.destinationCity || null,
     receivingFacilityId: otherFacility ? null : d.receivingFacilityId || null, freeTextFacility: otherFacility ? d.freeTextFacility : null,
     travelStart: d.travelStart || null, travelEnd: d.travelEnd || null, sessionsRequired: d.sessionsRequired === '' ? null : Number(d.sessionsRequired), modApplies: d.modApplies,
+    patientMobile: (!isHidden(rules, 'patientMobile') && d.patientMobile) || null,
+    relativeMobile: (!isHidden(rules, 'relativeMobile') && d.relativeMobile) || null,
+    relativeName: (!isHidden(rules, 'relativeName') && d.relativeName) || null,
   });
 
   async function saveDraft() {
@@ -82,16 +93,16 @@ export default function WizardPage() {
   };
 
   const stepErrors = (n) => {
-    if (n === 1) return validatePatientStep(d);
+    if (n === 1) return validatePatientStep(d, rules);
     if (n === 2) return validateDestinationStep({ ...d, receivingFacilityId: otherFacility ? '' : d.receivingFacilityId, freeTextFacility: otherFacility ? d.freeTextFacility : '' }, today);
-    if (n === 3) return validateAttachmentsStep(d, Object.keys(docs));
+    if (n === 3) return validateAttachmentsStep(d, Object.keys(docs), rules);
     return {};
   };
   const ready = (n) => {
     if (n === 1) return (d.patient.id || (d.patient.name && d.patient.mrn && d.patient.identifier)) && d.destinationType;
     if (n === 2) return (d.destinationType === DEST.INTERNATIONAL ? d.destinationCountry && d.destinationCity : d.destinationCity)
       && (otherFacility ? d.freeTextFacility : d.receivingFacilityId) && d.travelStart && d.travelEnd && String(d.sessionsRequired).trim();
-    if (n === 3) return docs.MOHApproval && docs.MedicalReport && docs.IDCopy && (!d.modApplies || docs.MODApproval);
+    if (n === 3) return Object.keys(validateAttachmentsStep(d, Object.keys(docs), rules)).length === 0;
     if (n === 4) return confirmed && [1, 2, 3].every((s) => !Object.keys(stepErrors(s)).length);
     return true;
   };
@@ -160,7 +171,7 @@ export default function WizardPage() {
 
   const nextLabel = step === 4 ? <><Icon name="send" />Submit request</> : <>{fromReview ? 'Back to review' : 'Next'}<Icon name="next" /></>;
   return (
-    <div className="wiz">
+    <div className={`wiz fr-scope ${form.highlightRequired ? 'hl-req' : ''}`} style={{ '--fr-req': form.requiredColor, '--fr-opt': form.optionalColor }}>
       <div className="crumbs"><Link className="textlink" to="/">My Requests</Link><span>/</span><span>{draft.number ? `Draft ${draft.number}` : 'New request'}</span></div>
       <div className="page-head"><div><div className="eyebrow">Step {step} of 4</div><h1 style={{ marginTop: 4 }}>{STEPS[step - 1]}</h1></div></div>
       <div className="steps">
@@ -171,10 +182,10 @@ export default function WizardPage() {
         ))}
       </div>
       <div className="card pad">
-        {step === 1 && <StepPatient d={d} user={user} errs={errs} upd={upd} updPatient={updPatient} />}
+        {step === 1 && <StepPatient d={d} user={user} errs={errs} upd={upd} updPatient={updPatient} rules={rules} />}
         {step === 2 && <StepDestination d={d} user={user} errs={errs} upd={upd} today={today} otherFacility={otherFacility} setOtherFacility={setOtherFacility} />}
-        {step === 3 && <StepAttachments d={d} errs={errs} upd={upd} docs={docs} onUpload={uploadFile} onRemove={removeFile} busy={busy} />}
-        {step === 4 && <StepReview d={d} user={user} docs={docs} otherFacility={otherFacility} confirmed={confirmed} setConfirmed={setConfirmed} errs={errs}
+        {step === 3 && <StepAttachments d={d} errs={errs} upd={upd} docs={docs} onUpload={uploadFile} onRemove={removeFile} busy={busy} rules={rules} />}
+        {step === 4 && <StepReview d={d} user={user} docs={docs} rules={rules} otherFacility={otherFacility} confirmed={confirmed} setConfirmed={setConfirmed} errs={errs}
           onEdit={(n) => { setStep(n); setFromReview(true); setErrs({}); window.scrollTo(0, 0); }} />}
         <div className="wiz-actions">
           <div className="row">
@@ -192,7 +203,9 @@ export default function WizardPage() {
 }
 
 // ---------------------------------------------------------------- Step 1
-function StepPatient({ d, user, errs, upd, updPatient }) {
+function StepPatient({ d, user, errs, upd, updPatient, rules }) {
+  const mark = (k) => (isRequired(rules, k, d) ? <span className="req">*</span> : <span className="opt-mark">Optional</span>);
+  const ph = (k, text) => (isRequired(rules, k, d) ? text : `Optional${text ? `, ${text}` : ''}`);
   const [sugg, setSugg] = useState([]);
   const [open, setOpen] = useState(false);
   const locked = !!d.patient.id;
@@ -245,6 +258,28 @@ function StepPatient({ d, user, errs, upd, updPatient }) {
           </div>}
         <FieldError msg={errs.identifier} />
       </div>
+
+      {!isHidden(rules, 'patientMobile') && <>
+      <label className="lbl" htmlFor="w-mobile">Patient mobile {mark('patientMobile')}</label>
+      <div><input id="w-mobile" type="tel" inputMode="tel" autoComplete="off" dir="ltr" className={`input ${errs.patientMobile ? 'err' : ''}`} style={{ maxWidth: 280 }}
+        value={d.patientMobile} onChange={(e) => upd({ patientMobile: e.target.value })} placeholder="05X XXX XXXX" />
+        <div className="help">The number the receiving clinic can reach the patient on during the trip. Outside Saudi Arabia, include the country code, e.g. +44.</div>
+        <FieldError msg={errs.patientMobile} /></div>
+      </>}
+
+      {!isHidden(rules, 'relativeMobile') && <>
+      <label className="lbl" htmlFor="w-rel-mobile">Relative’s mobile {mark('relativeMobile')}</label>
+      <div><input id="w-rel-mobile" type="tel" inputMode="tel" autoComplete="off" dir="ltr" className={`input ${errs.relativeMobile ? 'err' : ''}`} style={{ maxWidth: 280 }}
+        value={d.relativeMobile} onChange={(e) => upd({ relativeMobile: e.target.value })} placeholder={ph('relativeMobile', '')} />
+        <FieldError msg={errs.relativeMobile} /></div>
+      </>}
+
+      {!isHidden(rules, 'relativeName') && <>
+      <label className="lbl" htmlFor="w-rel-name">Relative’s name and relationship {mark('relativeName')}</label>
+      <div><input id="w-rel-name" className={`input ${errs.relativeName ? 'err' : ''}`} maxLength={100} style={{ maxWidth: 420 }}
+        value={d.relativeName} onChange={(e) => upd({ relativeName: e.target.value })} placeholder={ph('relativeName', 'e.g. Ahmed Al-Otaibi (son)')} />
+        <FieldError msg={errs.relativeName} /></div>
+      </>}
 
       <label className="lbl" htmlFor="w-home">Home clinic</label><div><input id="w-home" className="input" readOnly value={user.clinics.map((c) => c.name).join(', ')} /></div>
       <label className="lbl" htmlFor="w-staff">Requesting staff</label><div><input id="w-staff" className="input" readOnly value={user.name} /></div>
@@ -331,12 +366,13 @@ function StepDestination({ d, errs, upd, today, otherFacility, setOtherFacility 
             <div className="help">Unlisted facilities are reviewed and added to the facility list by IT.</div>
           </>}
         </div>
-        <label className="lbl" htmlFor="w-start">Travel start date <span className="req">*</span></label>
-        <div><input type="date" id="w-start" className={`input ${errs.travelStart ? 'err' : ''}`} min={today} value={d.travelStart} style={{ maxWidth: 240 }}
-          onChange={(e) => upd({ travelStart: e.target.value })} /><FieldError msg={errs.travelStart} /></div>
-        <label className="lbl" htmlFor="w-end">Travel end date <span className="req">*</span></label>
-        <div><input type="date" id="w-end" className={`input ${errs.travelEnd ? 'err' : ''}`} min={d.travelStart || today} value={d.travelEnd} style={{ maxWidth: 240 }}
-          onChange={(e) => upd({ travelEnd: e.target.value })} /><FieldError msg={errs.travelEnd} /></div>
+        <label className="lbl" htmlFor="w-dates">Travel dates <span className="req">*</span></label>
+        <div style={{ maxWidth: 380 }}>
+          <DateRangePicker id="w-dates" ariaLabel="Travel dates" placeholder="Choose travel start and end" min={today}
+            start={d.travelStart || ''} end={d.travelEnd || ''} invalid={!!(errs.travelStart || errs.travelEnd)}
+            onChange={(v) => upd({ travelStart: v.start, travelEnd: v.end })} />
+          <div className="help">Click the arrival day, then the departure day.</div>
+          <FieldError msg={errs.travelStart} /><FieldError msg={errs.travelEnd} /></div>
         <label className="lbl" htmlFor="w-ses">Number of sessions needed <span className="req">*</span></label>
         <div><input type="number" id="w-ses" min="1" step="1" className={`input ${errs.sessionsRequired ? 'err' : ''}`} value={d.sessionsRequired} style={{ maxWidth: 140 }}
           onChange={(e) => upd({ sessionsRequired: e.target.value })} /><FieldError msg={errs.sessionsRequired} /></div>
@@ -346,22 +382,23 @@ function StepDestination({ d, errs, upd, today, otherFacility, setOtherFacility 
 }
 
 // ---------------------------------------------------------------- Step 3
-function StepAttachments({ d, errs, upd, docs, onUpload, onRemove, busy }) {
+function StepAttachments({ d, errs, upd, docs, onUpload, onRemove, busy, rules }) {
   const HINT = {
     MOHApproval: 'Email or letter received from MOH', MODApproval: d.modApplies ? 'Required because MOD approval applies' : 'Tick “MOD approval applies” if needed',
     MedicalReport: 'May include serology results', SerologyReport: 'Only if not in the medical report', IDCopy: 'National ID, Iqama or passport',
   };
-  const need = (t) => (t === 'MODApproval' ? (d.modApplies ? 'req' : 'cond') : t === 'SerologyReport' ? 'opt' : 'req');
+  const need = (t) => (rules[t] === 'whenApplies' ? (d.modApplies ? 'req' : 'cond') : isRequired(rules, t, d) ? 'req' : 'opt');
+  const shown = WIZARD_DOC_TYPES.filter((t) => !isHidden(rules, t));
   const TAG = { req: <span className="tag req">Required</span>, cond: <span className="tag cond">If applicable</span>, opt: <span className="tag opt">Optional</span> };
   return (
     <>
       <div className="banner warn"><Icon name="info" /><span>MOH approval (and MOD approval where it applies) must already be in hand. Upload it here with the clinical documents.</span></div>
-      <label className="switch" style={{ marginBottom: 16 }}><input type="checkbox" checked={d.modApplies} onChange={(e) => upd({ modApplies: e.target.checked })} /> MOD approval applies to this patient</label>
+      {!isHidden(rules, 'MODApproval') && <label className="switch" style={{ marginBottom: 16 }}><input type="checkbox" checked={d.modApplies} onChange={(e) => upd({ modApplies: e.target.checked })} /> MOD approval applies to this patient</label>}
       <p className="muted small" style={{ marginBottom: 14 }}>Accepted: PDF, JPG, PNG (approvals also accept EML). Maximum 10 MB per file.</p>
       <div className="uploads">
-        {WIZARD_DOC_TYPES.map((t) => (
-          <UploadCard key={t} type={t} label={DOC_TYPES[t].label} tag={TAG[need(t)]} hint={HINT[t]} doc={docs[t]} err={errs[t]} busy={busy}
-            dim={t === 'MODApproval' && !d.modApplies} accept={DOC_TYPES[t].ext.map((e) => `.${e}`).join(',')}
+        {shown.map((t) => (
+          <UploadCard key={t} type={t} label={DOC_TYPES[t].label} tag={TAG[need(t)]} req={need(t) === 'req'} hint={HINT[t]} doc={docs[t]} err={errs[t]} busy={busy}
+            dim={rules[t] === 'whenApplies' && !d.modApplies} accept={DOC_TYPES[t].ext.map((e) => `.${e}`).join(',')}
             onFile={(f) => onUpload(t, f)} onRemove={() => onRemove(t)} />
         ))}
       </div>
@@ -369,10 +406,10 @@ function StepAttachments({ d, errs, upd, docs, onUpload, onRemove, busy }) {
   );
 }
 
-function UploadCard({ type, label, tag, hint, doc, err, dim, accept, onFile, onRemove, busy }) {
+function UploadCard({ type, label, tag, req, hint, doc, err, dim, accept, onFile, onRemove, busy }) {
   const [over, setOver] = useState(false);
   return (
-    <div className={`up ${err ? 'has-err' : ''}`} style={dim ? { opacity: 0.6 } : undefined}>
+    <div className={`up ${err ? 'has-err' : ''} ${req ? 'is-req' : ''}`} style={dim ? { opacity: 0.6 } : undefined}>
       <div className="up-h"><b>{label}</b>{tag}</div>
       {doc ? (
         <div className="up-file"><Icon name="doc" /><span><b title={doc.fileName}>{doc.fileName}</b><small>{fmtSize(doc.size)} · uploaded</small></span>
@@ -394,7 +431,7 @@ function UploadCard({ type, label, tag, hint, doc, err, dim, accept, onFile, onR
 }
 
 // ---------------------------------------------------------------- Step 4
-function StepReview({ d, user, docs, otherFacility, confirmed, setConfirmed, errs, onEdit }) {
+function StepReview({ d, user, docs, rules, otherFacility, confirmed, setConfirmed, errs, onEdit }) {
   const [facName, setFacName] = useState('');
   useEffect(() => {
     if (otherFacility || !d.receivingFacilityId) { setFacName(d.freeTextFacility || '—'); return; }
@@ -413,6 +450,8 @@ function StepReview({ d, user, docs, otherFacility, confirmed, setConfirmed, err
         <Sec title="Patient & Destination" step={1} rows={[
           ['Patient name', d.patient.name], ['MRN', d.patient.mrn],
           ['ID number', d.patient.id ? d.patient.identifierMasked : `${d.patient.identifier} (${d.patient.identifierType === 'Passport' ? 'Passport' : 'National ID / Iqama'})`],
+          ...(isHidden(rules, 'patientMobile') ? [] : [['Patient mobile', d.patientMobile || '—']]),
+          ...(isHidden(rules, 'relativeMobile') && isHidden(rules, 'relativeName') ? [] : [['Relative', d.relativeMobile || d.relativeName ? [d.relativeName, d.relativeMobile].filter(Boolean).join(' · ') : '—']]),
           ['Home clinic', user.clinics.map((c) => c.name).join(', ')], ['Requesting staff', user.name], ['Destination type', DEST_LABELS[d.destinationType]],
         ]} />
         <Sec title="Clinical & Destination Details" step={2} rows={[
@@ -422,8 +461,8 @@ function StepReview({ d, user, docs, otherFacility, confirmed, setConfirmed, err
         ]} />
       </div>
       <div style={{ marginTop: 16 }}>
-        <Sec title="Attachments" step={3} rows={WIZARD_DOC_TYPES.filter((t) => t !== 'MODApproval' || d.modApplies).map((t) => [DOC_TYPES[t].label,
-          docs[t] ? <>{docs[t].fileName} <span className="muted">· {fmtSize(docs[t].size)}</span></> : t === 'SerologyReport' ? <span className="muted">Not uploaded (optional)</span> : <span style={{ color: 'var(--bad-fg)' }}>Missing</span>])} />
+        <Sec title="Attachments" step={3} rows={WIZARD_DOC_TYPES.filter((t) => !isHidden(rules, t) && (rules[t] !== 'whenApplies' || d.modApplies)).map((t) => [DOC_TYPES[t].label,
+          docs[t] ? <>{docs[t].fileName} <span className="muted">· {fmtSize(docs[t].size)}</span></> : !isRequired(rules, t, d) ? <span className="muted">Not uploaded (optional)</span> : <span style={{ color: 'var(--bad-fg)' }}>Missing</span>])} />
       </div>
       <div className="banner info" style={{ marginTop: 16 }}><Icon name="send" />
         <span>{internal ? <>On submit, the request goes straight to <b>{facName}</b> for approval in the portal.</> : <>On submit, the request goes to the <b>Coordination Team – International</b>, who will email it to the provider.</>}</span>

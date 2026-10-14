@@ -11,9 +11,10 @@ import { fmtTS } from '../lib/format.js';
 import EmailSettingsPage from './EmailSettingsPage.jsx';
 import AuthSettingsPage from './AuthSettingsPage.jsx';
 import BrandingPage from './BrandingPage.jsx';
+import FormFieldsPage from './FormFieldsPage.jsx';
 import { SIGN_IN_METHODS } from '@domain/auth.js';
 
-const TABS = [['users', 'User Management', 'users'], ['password-links', 'Password links', 'send'], ['facilities', 'Facilities & Providers', 'building'], ['sla', 'SLA Targets', 'sla'], ['templates', 'Notification Templates', 'mail'], ['email', 'Email (SMTP)', 'send'], ['signin', 'Sign-in & Directory', 'shield'], ['branding', 'Branding', 'palette'], ['audit', 'Audit History', 'history']];
+const TABS = [['users', 'User Management', 'users'], ['password-links', 'Password links', 'send'], ['facilities', 'Facilities & Providers', 'building'], ['sla', 'SLA Targets', 'sla'], ['templates', 'Notification Templates', 'mail'], ['email', 'Email (SMTP)', 'send'], ['signin', 'Sign-in & Directory', 'shield'], ['branding', 'Branding', 'palette'], ['form-fields', 'Form Fields', 'list'], ['audit', 'Audit History', 'history']];
 
 export default function AdminPage() {
   return (
@@ -34,6 +35,7 @@ export default function AdminPage() {
             <Route path="email" element={<EmailSettingsPage />} />
             <Route path="signin" element={<AuthSettingsPage />} />
             <Route path="branding" element={<BrandingPage />} />
+            <Route path="form-fields" element={<FormFieldsPage />} />
             <Route path="audit" element={<Audit />} />
           </Routes>
         </div>

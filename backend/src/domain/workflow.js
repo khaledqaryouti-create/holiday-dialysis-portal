@@ -1,6 +1,6 @@
 // Request workflow (spec §3, §6.4, §7, §10). Every state-changing action is gated on
 // (1) the exact current status, (2) destination type and (3) the user's role/clinic — never on hidden buttons alone.
-import { ROLES, STATUS, DEST, ACTIONS, ACTIVE_STATUSES } from './constants.js';
+import { ROLES, STATUS, DEST, ACTIONS, ACTIVE_STATUSES, MAX_PROPOSAL_ROUNDS } from './constants.js';
 import { hasRole, inClinic, canView } from './access.js';
 
 const isExternal = (r) => r.destinationType !== DEST.INTERNAL;
@@ -13,6 +13,9 @@ const isIntlCoordinator = (u, r) => isExternal(r) && hasRole(u, ROLES.COORD_INTE
 /** Coordination team that owns the request's network (§7 "Mark as Completed"). */
 export const isCoordinatorFor = (u, r) =>
   (hasRole(u, ROLES.COORD_INTERNAL) && !isExternal(r)) || (hasRole(u, ROLES.COORD_INTERNATIONAL) && isExternal(r));
+
+const roundsLeft = (r) => ((r.proposalRounds ?? 0) >= MAX_PROPOSAL_ROUNDS
+  ? `Other dates have already been proposed ${MAX_PROPOSAL_ROUNDS} times. Approve or decline this time.` : null);
 
 /**
  * from: statuses the action is valid in. who: role/clinic predicate. to: resulting status (or fn).
@@ -32,6 +35,21 @@ export const RULES = Object.freeze({
   [ACTIONS.RESEND_TO_PROVIDER]: { from: [STATUS.SENT_TO_PROVIDER], who: isIntlCoordinator },
   [ACTIONS.RECORD_PROVIDER_APPROVED]: { from: [STATUS.SENT_TO_PROVIDER], who: isIntlCoordinator, to: STATUS.CONFIRMED },
   [ACTIONS.RECORD_PROVIDER_DECLINED]: { from: [STATUS.SENT_TO_PROVIDER], who: isIntlCoordinator, to: STATUS.REJECTED },
+  // Other dates instead of a straight decline: the receiving clinic (Internal) or the provider via the coordination team (External).
+  [ACTIONS.PROPOSE_DATES]: {
+    from: [STATUS.PENDING_CLINIC], who: isReceivingClinic, to: STATUS.ALT_PROPOSED, when: roundsLeft,
+  },
+  [ACTIONS.RECORD_PROVIDER_ALTERNATIVE]: {
+    from: [STATUS.SENT_TO_PROVIDER], who: isIntlCoordinator, to: STATUS.ALT_PROPOSED, when: roundsLeft,
+  },
+  // The requesting clinic answers: accept one option (confirms the request) or ask for other dates (back to the decider).
+  [ACTIONS.ACCEPT_PROPOSED_DATES]: { from: [STATUS.ALT_PROPOSED], who: isRequester, to: STATUS.CONFIRMED },
+  [ACTIONS.REQUEST_OTHER_DATES]: {
+    from: [STATUS.ALT_PROPOSED], who: isRequester,
+    to: (r) => (isExternal(r) ? STATUS.PENDING_PROVIDER_EMAIL : STATUS.PENDING_CLINIC),
+    when: (r) => ((r.proposalRounds ?? 0) >= MAX_PROPOSAL_ROUNDS
+      ? `Dates have been proposed ${MAX_PROPOSAL_ROUNDS} times. Accept one of the options or withdraw the request.` : null),
+  },
   [ACTIONS.WITHDRAW]: { from: ACTIVE_STATUSES, who: isRequester, to: STATUS.WITHDRAWN },
   [ACTIONS.COMPLETE]: {
     from: [STATUS.CONFIRMED],
@@ -100,6 +118,7 @@ export function waitingOn(r) {
     case STATUS.PENDING_CLINIC: return `Waiting for ${r.receivingFacilityName || 'the receiving clinic'} to approve or reject.`;
     case STATUS.PENDING_PROVIDER_EMAIL: return 'Waiting for the Coordination Team – International to email the provider.';
     case STATUS.SENT_TO_PROVIDER: return `Waiting for ${r.selectedFacilityName || r.receivingFacilityName || r.freeTextFacility || 'the provider'} to reply. The coordination team will record the reply here.`;
+    case STATUS.ALT_PROPOSED: return `Other dates were proposed. Waiting for ${r.requestingFacilityName || 'the requesting clinic'} to accept one, ask for other dates, or withdraw.`;
     case STATUS.CONFIRMED: return 'Sessions confirmed. The coordination team marks the request completed after travel ends.';
     case STATUS.COMPLETED: return 'This request is complete and read-only. Comments can still be added.';
     case STATUS.REJECTED: return 'This request was not accepted. Submit a new request to rebook.';
