@@ -5,6 +5,7 @@ import { AuthProvider } from './auth.jsx';
 import { BrandingProvider } from './branding.jsx';
 import { UiProvider } from './components/ui.jsx';
 import App from './App.jsx';
+import { TerminologyProvider } from './terms.jsx';
 import './styles.css';
 
 createRoot(document.getElementById('root')).render(
@@ -13,7 +14,9 @@ createRoot(document.getElementById('root')).render(
       <BrandingProvider>
         <AuthProvider>
           <UiProvider>
-            <App />
+            <TerminologyProvider>
+              <App />
+            </TerminologyProvider>
           </UiProvider>
         </AuthProvider>
       </BrandingProvider>

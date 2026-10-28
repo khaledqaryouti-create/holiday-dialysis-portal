@@ -1,6 +1,7 @@
 // Field validation (spec §6, §7, §10). Pure functions returning { field: message } maps; empty object = valid.
 // Used by the API (authoritative) and by the React wizard (instant feedback).
 import { DEFAULT_FIELD_RULES, isRequired, isHidden } from './formRules.js';
+import { DEFAULT_INPUT_RULES, checkText, checkMobile, storeMobile } from './inputRules.js';
 import { DEST, DOC_TYPES, MAX_FILE_BYTES, REASON_MIN, REASON_MAX, CONFIRMED_DATES_TOLERANCE_DAYS } from './constants.js';
 import { isIsoDate, addDays, fmtRange } from './dates.js';
 
@@ -8,13 +9,12 @@ export const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 export const isEmail = (s) => typeof s === 'string' && EMAIL_RE.test(s.trim());
 const blank = (v) => v == null || String(v).trim() === '';
 
-export function validateIdentifier(type, value) {
+/** `vr` = Validation Rules from Admin Settings (defaults: National ID 10 digits, passport 6–9 letters/digits). */
+export function validateIdentifier(type, value, vr = DEFAULT_INPUT_RULES) {
   const v = String(value ?? '').trim();
   if (!v) return 'Enter the National ID, Iqama or passport number.';
-  if (type === 'NationalId' && !/^\d{10}$/.test(v)) return 'National ID / Iqama must be exactly 10 digits.';
-  if (type === 'Passport' && !/^[A-Za-z0-9]{6,9}$/.test(v)) return 'Passport number must be 6–9 letters or digits.';
   if (!['NationalId', 'Passport'].includes(type)) return 'Choose the ID type.';
-  return null;
+  return checkText(type === 'Passport' ? 'passport' : 'nationalId', v, vr);
 }
 
 /** Step 1 — Patient & Destination. `d.patient` is either {id} (from the patient list) or manual fields. */
@@ -22,20 +22,14 @@ export function validateIdentifier(type, value) {
  * Mobile numbers: Saudi numbers may be typed locally (05X XXX XXXX or 5X XXX XXXX); others need the country code
  * (+44 7700 900123 or 0044…). Returns the number in international form (+9665…) or null if it isn't valid.
  */
-export function normalizeMobile(v) {
-  let s = String(v ?? '').trim().replace(/[\s\-().]/g, '');
-  if (!s) return null;
-  if (s.startsWith('00')) s = `+${s.slice(2)}`;
-  if (/^05\d{8}$/.test(s)) s = `+966${s.slice(1)}`;
-  else if (/^5\d{8}$/.test(s)) s = `+966${s}`;
-  if (!/^\+[1-9]\d{7,14}$/.test(s)) return null;
-  if (s.startsWith('+966') && !/^\+9665\d{8}$/.test(s)) return null; // Saudi mobiles are +966 5X XXX XXXX
-  return s;
+export function normalizeMobile(v, vr = DEFAULT_INPUT_RULES, key = 'patientMobile') {
+  if (String(v ?? '').trim() === '' || checkMobile(key, v, vr)) return null;
+  return storeMobile(v, vr[key]);
 }
 /** Error message for a mobile field, or null. */
-export function validateMobile(v, { required = false, label = 'mobile number' } = {}) {
+export function validateMobile(v, { required = false, label = 'mobile number', vr = DEFAULT_INPUT_RULES, key = 'patientMobile' } = {}) {
   if (blank(v)) return required ? `Enter the ${label}.` : null;
-  return normalizeMobile(v) ? null : 'Enter a mobile number like 05X XXX XXXX, or with the country code, e.g. +44 7700 900123.';
+  return checkMobile(key, v, vr);
 }
 /** "+966 5•• ••• 4567" style display that hides the middle digits. */
 export function maskMobile(v) {
@@ -43,17 +37,17 @@ export function maskMobile(v) {
   return s.length > 6 ? `${s.slice(0, s.startsWith('+966') ? 5 : 3)}••••${s.slice(-4)}` : s;
 }
 
-export function validatePatientStep(d, rules = DEFAULT_FIELD_RULES) {
+export function validatePatientStep(d, rules = DEFAULT_FIELD_RULES, vr = DEFAULT_INPUT_RULES) {
   const e = {};
   const p = d.patient || {};
   if (!isHidden(rules, 'patientMobile')) {
-    const pm = validateMobile(d.patientMobile, { required: isRequired(rules, 'patientMobile', d), label: 'patient’s mobile number' });
+    const pm = validateMobile(d.patientMobile, { required: isRequired(rules, 'patientMobile', d), label: 'patient’s mobile number', vr, key: 'patientMobile' });
     if (pm) e.patientMobile = pm;
   }
   if (!isHidden(rules, 'relativeMobile')) {
-    const rm = validateMobile(d.relativeMobile, { required: isRequired(rules, 'relativeMobile', d), label: 'relative’s mobile number' });
+    const rm = validateMobile(d.relativeMobile, { required: isRequired(rules, 'relativeMobile', d), label: 'relative’s mobile number', vr, key: 'relativeMobile' });
     if (rm) e.relativeMobile = rm;
-    else if (d.relativeMobile && !isHidden(rules, 'patientMobile') && normalizeMobile(d.relativeMobile) === normalizeMobile(d.patientMobile)) e.relativeMobile = 'Enter a different number from the patient’s, or leave it empty.';
+    else if (d.relativeMobile && !isHidden(rules, 'patientMobile') && normalizeMobile(d.relativeMobile, vr, 'relativeMobile') === normalizeMobile(d.patientMobile, vr, 'patientMobile')) e.relativeMobile = 'Enter a different number from the patient’s, or leave it empty.';
   }
   if (!isHidden(rules, 'relativeName')) {
     if (isRequired(rules, 'relativeName', d) && blank(d.relativeName)) e.relativeName = 'Enter the relative’s name and relationship.';
@@ -61,9 +55,10 @@ export function validatePatientStep(d, rules = DEFAULT_FIELD_RULES) {
   }
   if (!p.id) {
     if (blank(p.name)) e.patientName = 'Enter the patient’s name or choose them from the list.';
+    else { const ne = checkText('patientName', p.name, vr); if (ne) e.patientName = ne; }
     if (blank(p.mrn)) e.mrn = 'Enter the MRN.';
-    else if (!/^\d+$/.test(String(p.mrn).trim())) e.mrn = 'MRN must contain numbers only.';
-    const idErr = validateIdentifier(p.identifierType, p.identifier);
+    else { const me = checkText('mrn', p.mrn, vr); if (me) e.mrn = me; }
+    const idErr = validateIdentifier(p.identifierType, p.identifier, vr);
     if (idErr) e.identifier = idErr;
   }
   if (!Object.values(DEST).includes(d.destinationType)) e.destinationType = 'Choose a destination type.';
@@ -106,9 +101,9 @@ export function validateAttachmentsStep(d, docTypes, rules = DEFAULT_FIELD_RULES
 }
 
 /** Everything that must hold before Submit (spec §6.4). Returns { step: 1|2|3, errors } or null. */
-export function validateForSubmit(d, docTypes, today, rules = DEFAULT_FIELD_RULES) {
+export function validateForSubmit(d, docTypes, today, rules = DEFAULT_FIELD_RULES, vr = DEFAULT_INPUT_RULES) {
   const steps = [
-    [1, validatePatientStep(d, rules)],
+    [1, validatePatientStep(d, rules, vr)],
     [2, validateDestinationStep(d, today)],
     [3, validateAttachmentsStep(d, docTypes, rules)],
   ];
@@ -130,6 +125,7 @@ export function validateFile(docType, fileName, size) {
   return null;
 }
 
+/** Local or temporary password length. Empty is allowed unless the caller requires one. */
 export function validatePassword(password, { required = false } = {}) {
   const t = password == null ? '' : String(password);
   if (!t) return required ? 'Enter a password of at least 8 characters.' : null;

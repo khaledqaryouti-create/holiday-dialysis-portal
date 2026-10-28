@@ -2,10 +2,8 @@ import { Router } from 'express';
 import { config } from '../config.js';
 import { ah, notFound, badRequest, AppError, unauthorized, validationFailed } from '../lib/errors.js';
 import { resolveSignInClinic } from '../domain/auth.js';
-import { FACILITY_TYPE } from '../domain/constants.js';
-import { listFacilities } from '../services/reference.js';
 import { issueSession, clearSession } from '../middleware/auth.js';
-import { listUsers, loadUser, matchPassword, touchSignIn } from '../services/users.js';
+import { clinicsForSignIn, listUsers, loadUser, matchPassword, touchSignIn } from '../services/users.js';
 import { completePasswordLink, inspectPasswordLink } from '../services/admin.js';
 import { unreadCount } from '../services/notifications.js';
 import { audit } from '../services/audit.js';
@@ -77,10 +75,9 @@ authRouter.post('/login', ah(async (req, res) => {
   res.json({ user: method === 'local' ? user : { ...user, mustChangePassword: false } });
 }));
 
-/** Clinics for the sign-in page's Clinic list (active network clinics; names only). */
-authRouter.get('/clinics', ah(async (_req, res) => {
-  const list = await listFacilities({ type: FACILITY_TYPE.CLINIC, activeOnly: true });
-  res.json({ clinics: list.map((f) => ({ id: f.id, name: f.name, city: f.city || null })) });
+/** Clinics this user name may choose on the sign-in page (assigned, active network clinics only). */
+authRouter.get('/clinics', ah(async (req, res) => {
+  res.json({ clinics: await clinicsForSignIn(req.query.username) });
 }));
 
 authRouter.get('/password-setup', ah(async (req, res) => {

@@ -5,11 +5,23 @@ import path from 'node:path';
 import { config } from '../config.js';
 import { AppError } from '../lib/errors.js';
 
+// Hosting platforms such as Vercel have a read-only disk: say so clearly instead of a generic server error.
+const NOT_CONFIGURED = () => new AppError(503, 'STORAGE_NOT_CONFIGURED',
+  'File storage isn’t set up on this server yet, so files can’t be uploaded. Ask IT to finish the storage setup (Supabase Storage).');
+
 const local = {
   async put(key, buffer) {
     const file = path.join(config.storage.localDir, key);
-    await fs.mkdir(path.dirname(file), { recursive: true });
-    await fs.writeFile(file, buffer);
+    try {
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      await fs.writeFile(file, buffer);
+    } catch (e) {
+      if (['EROFS', 'EACCES', 'EPERM', 'ENOENT', 'ENOTDIR'].includes(e.code)) {
+        console.error(`[storage] local disk is not writable (${e.code}) — set STORAGE_DRIVER=supabase, SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY`);
+        throw NOT_CONFIGURED();
+      }
+      throw e;
+    }
   },
   async get(key) {
     return fs.readFile(path.join(config.storage.localDir, key));
@@ -20,8 +32,30 @@ const local = {
 };
 
 const sb = () => config.storage;
-const sbHeaders = (extra = {}) => ({ Authorization: `Bearer ${sb().supabaseServiceRoleKey}`, apikey: sb().supabaseServiceRoleKey, ...extra });
+// Legacy service_role keys are JWTs and go in both headers. Newer secret keys (sb_secret_…) are not JWTs:
+// they go in the apikey header only, and Supabase's gateway handles authorisation.
+const sbHeaders = (extra = {}) => {
+  const k = sb().supabaseServiceRoleKey;
+  return { apikey: k, ...(k.startsWith('sb_') ? {} : { Authorization: `Bearer ${k}` }), ...extra };
+};
 const objectUrl = (key) => `${sb().supabaseUrl}/storage/v1/object/${encodeURIComponent(sb().bucket)}/${key.split('/').map(encodeURIComponent).join('/')}`;
+
+/** Supabase Storage answers most problems with HTTP 400 and the real reason in the body: turn it into a clear message. */
+async function storageError(res, contentType) {
+  const text = await res.text().catch(() => '');
+  let j = {}; try { j = JSON.parse(text); } catch { /* not JSON */ }
+  const why = `${j.statusCode || ''} ${j.error || ''} ${j.message || ''} ${text}`.toLowerCase();
+  console.error(`[storage] upload rejected: HTTP ${res.status} ${text.slice(0, 300)}`);
+  const bucket = sb().bucket;
+  let msg = `File storage rejected the upload (${res.status}${j.message ? `: ${j.message}` : ''}).`;
+  if (/bucket not found|bucket.*does not exist/.test(why)) msg = `File storage bucket “${bucket}” was not found. Ask IT to create a private bucket with exactly this name in Supabase.`;
+  else if (/row-level security|rls|policy/.test(why)) msg = 'File storage refused the upload because of access rules. SUPABASE_SERVICE_ROLE_KEY must be the service_role or secret key, not the anon/publishable key.';
+  else if (/mime|content type|invalid_mime_type/.test(why)) msg = `File storage does not allow this file type (${contentType}). Ask IT to allow it on the “${bucket}” bucket, or remove the bucket’s file-type restriction.`;
+  else if (/exceeded|too large|payload|entity too large|413/.test(why)) msg = `The file is larger than the “${bucket}” bucket allows. Ask IT to raise the bucket’s file size limit to 10 MB.`;
+  else if (/jws|jwt|signature|unauthori[sz]ed|invalid api key|invalid key/.test(why)) msg = 'File storage refused the server’s key. Ask IT to check SUPABASE_SERVICE_ROLE_KEY (use the service_role or secret key, not the anon/publishable key).';
+  else if (/already exists|duplicate/.test(why)) msg = 'A file with this name already exists in storage. Please try the upload again.';
+  return new AppError(502, 'STORAGE_ERROR', msg);
+}
 
 const supabase = {
   async put(key, buffer, contentType) {
@@ -30,7 +64,7 @@ const supabase = {
       headers: sbHeaders({ 'Content-Type': contentType, 'x-upsert': 'false' }),
       body: buffer,
     });
-    if (!res.ok) throw new AppError(502, 'STORAGE_ERROR', `File storage rejected the upload (${res.status}).`);
+    if (!res.ok) throw await storageError(res, contentType);
   },
   async get(key) {
     const res = await fetch(objectUrl(key), { headers: sbHeaders() });

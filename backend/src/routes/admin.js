@@ -11,6 +11,9 @@ import * as authSettings from '../services/authSettings.js';
 import * as signin from '../services/authentication.js';
 import * as branding from '../services/branding.js';
 import * as formSettings from '../services/formSettings.js';
+import * as validationSettings from '../services/validationSettings.js';
+import * as integrations from '../services/integrations/admin.js';
+import * as terminology from '../services/terminology.js';
 import { LOGO_MAX_BYTES, PHOTO_MAX_BYTES } from '../domain/branding.js';
 
 export const adminRouter = Router();
@@ -58,13 +61,29 @@ adminRouter.post('/auth-settings/lockouts/unlock', ah(async (req, res) => { awai
 adminRouter.post('/users/:id/password', ah(async (req, res) => res.json(await signin.adminSetPassword(req.user, req.params.id, req.body || {}, req.ip))));
 adminRouter.delete('/users/:id/password', ah(async (req, res) => { await signin.adminRemovePassword(req.user, req.params.id, req.ip); res.status(204).end(); }));
 
-adminRouter.get('/form-settings', ah(async (_req, res) => res.json(await formSettings.getFormSettings())));
-adminRouter.put('/form-settings', ah(async (req, res) => res.json(await formSettings.saveFormSettings(req.user, req.body || {}, req.ip))));
-
 // Branding (logo, company / clinic name, contact details) — shown on the sign-in page and header once switched on.
 const logoUpload = (req, res, next) => multer({ storage: multer.memoryStorage(), limits: { fileSize: LOGO_MAX_BYTES, files: 1 } })
   .single('logo')(req, res, (err) => next(err?.code === 'LIMIT_FILE_SIZE'
     ? validationFailed({ logo: 'The logo is larger than 1 MB. Save it smaller (about 600 px wide is plenty).' }) : err));
+adminRouter.get('/terminology', ah(async (_req, res) => res.json(await terminology.getTerminologySettings())));
+adminRouter.put('/terminology', ah(async (req, res) => res.json(await terminology.saveTerminologySettings(req.user, req.body || {}, req.ip))));
+adminRouter.get('/integrations', ah(async (_req, res) => res.json(await integrations.listConnections())));
+adminRouter.post('/integrations', ah(async (req, res) => res.status(201).json(await integrations.saveConnection(req.user, null, req.body || {}, req.ip))));
+adminRouter.post('/integrations/run-jobs', ah(async (req, res) => res.json(await integrations.runJobsNow(req.user, req.ip))));
+adminRouter.post('/integrations/preview', ah(async (req, res) => res.json(integrations.previewUnsaved(req.body || {}))));
+adminRouter.get('/integrations/messages', ah(async (req, res) => res.json(await integrations.listMessages(req.query))));
+adminRouter.get('/integrations/messages/:id/payload', ah(async (req, res) => res.json(await integrations.messagePayload(req.user, req.params.id, req.ip))));
+adminRouter.post('/integrations/messages/:id/retry', ah(async (req, res) => res.json(await integrations.retryMessage(req.user, req.params.id, req.ip))));
+adminRouter.get('/integrations/:id', ah(async (req, res) => res.json(await integrations.getConnection(req.params.id))));
+adminRouter.put('/integrations/:id', ah(async (req, res) => res.json(await integrations.saveConnection(req.user, req.params.id, req.body || {}, req.ip))));
+adminRouter.delete('/integrations/:id', ah(async (req, res) => res.json(await integrations.deleteConnection(req.user, req.params.id, req.ip))));
+adminRouter.post('/integrations/:id/enabled', ah(async (req, res) => res.json(await integrations.setEnabled(req.user, req.params.id, req.body?.enabled === true, req.ip))));
+adminRouter.post('/integrations/:id/inbound-key', ah(async (req, res) => res.json(await integrations.newInboundKey(req.user, req.params.id, req.ip))));
+adminRouter.post('/integrations/:id/test', ah(async (req, res) => res.json(await integrations.test(req.user, req.params.id))));
+adminRouter.get('/validation-settings', ah(async (_req, res) => res.json(await validationSettings.getValidationSettings())));
+adminRouter.put('/validation-settings', ah(async (req, res) => res.json(await validationSettings.saveValidationSettings(req.user, req.body || {}, req.ip))));
+adminRouter.get('/form-settings', ah(async (_req, res) => res.json(await formSettings.getFormSettings())));
+adminRouter.put('/form-settings', ah(async (req, res) => res.json(await formSettings.saveFormSettings(req.user, req.body || {}, req.ip))));
 adminRouter.get('/branding', ah(async (_req, res) => res.json(await branding.getBrandingSettings())));
 adminRouter.put('/branding', ah(async (req, res) => res.json(await branding.saveBrandingSettings(req.user, req.body || {}, req.ip))));
 adminRouter.post('/branding/logo', logoUpload, ah(async (req, res) => res.json(await branding.uploadLogo(req.user, req.file, req.ip))));

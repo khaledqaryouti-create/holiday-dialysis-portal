@@ -8,7 +8,7 @@ if (!supabaseUrl || !key) {
   console.error('[storage] Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in backend/.env first.');
   process.exit(1);
 }
-const headers = { Authorization: `Bearer ${key}`, apikey: key, 'Content-Type': 'application/json' };
+const headers = { apikey: key, ...(key.startsWith('sb_') ? {} : { Authorization: `Bearer ${key}` }), 'Content-Type': 'application/json' };
 const existing = await fetch(`${supabaseUrl}/storage/v1/bucket/${bucket}`, { headers });
 if (existing.ok) {
   const b = await existing.json();

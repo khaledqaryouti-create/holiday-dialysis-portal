@@ -19,6 +19,8 @@ import { mergeValues, renderTemplate } from '../domain/templates.js';
 import { AppError, notFound, forbidden, conflict, badRequest, validationFailed, fromWorkflow } from '../lib/errors.js';
 import { audit } from './audit.js';
 import { currentFieldRules } from './formSettings.js';
+import { currentInputRules } from './validationSettings.js';
+import { queueForAction } from './integrations/engine.js';
 import { notify, flushEmails, getActiveTemplate } from './notifications.js';
 import { userIdsWithRole } from './users.js';
 import { storage, storageKey } from './storage.js';
@@ -308,6 +310,7 @@ async function transition(ctx, action, { title, note = null, set = {} }) {
   );
   await audit(c, { user, action: 'StatusChange', entityType: 'Request', entityId: r.requestNumber, detail: { from: r.status, to, action } });
   r.status = to;
+  await queueForAction(ctx, action); // Admin Settings → Integrations (never blocks the workflow)
 }
 
 const touch = (c, id) => c.query('UPDATE holiday_dialysis_request SET updated_at = now() WHERE id = $1', [id]);
@@ -324,7 +327,7 @@ function cleanStr(v, max = 200) {
   return s ? s.slice(0, max) : null;
 }
 
-function sanitizeDraft(body = {}) {
+function sanitizeDraft(body = {}, vr) {
   const errors = {};
   const out = {};
   const pt = body.patient || {};
@@ -352,8 +355,9 @@ function sanitizeDraft(body = {}) {
   // contact numbers: drafts may be incomplete, but anything typed must be a valid mobile number
   for (const k of ['patientMobile', 'relativeMobile']) {
     const raw = cleanStr(body[k], 30);
-    if (raw && validateMobile(raw)) errors[k] = validateMobile(raw);
-    out[k] = raw ? normalizeMobile(raw) : null;
+    const err = raw ? validateMobile(raw, { vr, key: k }) : null;
+    if (err) errors[k] = err;
+    out[k] = raw ? normalizeMobile(raw, vr, k) : null;
   }
   out.relativeName = cleanStr(body.relativeName, 100);
   if (out.travelStart && out.travelEnd && out.travelEnd <= out.travelStart) errors.travelEnd = 'Travel end date must be after the start date.';
@@ -419,7 +423,7 @@ async function writeDraftFields(c, user, r, d) {
 export async function createDraft(user, body, ip) {
   if (!hasRole(user, ROLES.CLINIC_STAFF) || !user.clinicIds.length) throw forbidden('Only clinic staff can create requests.');
   const home = body.requestingFacilityId && user.clinicIds.includes(body.requestingFacilityId) ? body.requestingFacilityId : user.clinicIds[0];
-  const d = sanitizeDraft(body);
+  const d = sanitizeDraft(body, await currentInputRules());
   const id = await withTx(async (c) => {
     const { rows } = await c.query(
       `INSERT INTO holiday_dialysis_request (request_number, requesting_facility_id, created_by_user_id)
@@ -436,7 +440,7 @@ export async function createDraft(user, body, ip) {
 }
 
 export async function updateDraft(user, id, body, ip) {
-  const d = sanitizeDraft(body);
+  const d = sanitizeDraft(body, await currentInputRules());
   await runAction(user, id, ACTIONS.EDIT_DRAFT, body.rowVersion, async (ctx) => {
     await writeDraftFields(ctx.c, user, ctx.r, d);
     await audit(ctx.c, { user, action: 'DraftUpdated', entityType: 'Request', entityId: ctx.r.requestNumber, ip });
@@ -564,7 +568,7 @@ export async function submit(user, id, { rowVersion, confirm }) {
     const { c, r } = ctx;
     const { d, identifier } = await draftInputs(c, r);
     const { rows: docRows } = await c.query('SELECT document_type FROM request_document WHERE request_id = $1 AND is_current', [r.id]);
-    const v = validateForSubmit(d, docRows.map((x) => x.document_type), ctx.today, await currentFieldRules(ctx.c));
+    const v = validateForSubmit(d, docRows.map((x) => x.document_type), ctx.today, await currentFieldRules(ctx.c), await currentInputRules(ctx.c));
     if (v) throw validationFailed(v.errors, 'Some details are missing or invalid.', { step: v.step });
     await assertDestinationTarget(c, r);
     const patientId = r.patientId || (await resolveManualPatient(c, r, identifier));

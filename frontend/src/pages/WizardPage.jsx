@@ -9,11 +9,14 @@ import DateRangePicker from '../components/DateRangePicker.jsx';
 import { useUi, ErrorBox, FieldError, Loading, fmtSize } from '../components/ui.jsx';
 import { DEST, DEST_LABELS, DOC_TYPES, WIZARD_DOC_TYPES } from '@domain/constants.js';
 import { validatePatientStep, validateDestinationStep, validateAttachmentsStep, validateFile } from '@domain/validation.js';
-import { DEFAULT_FIELD_RULES, DEFAULT_FORM_COLORS, isRequired, isHidden } from '@domain/formRules.js';
 import { todayIn, fmtDate, daysBetween } from '@domain/dates.js';
+import { DEFAULT_FIELD_RULES, DEFAULT_FORM_COLORS, isRequired, isHidden } from '@domain/formRules.js';
+import { DEFAULT_INPUT_RULES } from '@domain/inputRules.js';
 import { TZ } from '../lib/format.js';
+import { t, destLabel, statusLabel } from '../terms.jsx';
+const statusLabelDraft = () => statusLabel('Draft');
 
-const STEPS = ['Patient & Destination', 'Clinical & Destination Details', 'Attachments', 'Review & Submit'];
+const STEPS_KEYS = ['step.1', 'step.2', 'step.3', 'step.4'];
 const blank = () => ({
   patient: { id: null, name: '', mrn: '', identifierType: 'NationalId', identifier: '', identifierMasked: '' },
   destinationType: '', destinationCountry: '', destinationCity: '', receivingFacilityId: '', freeTextFacility: '',
@@ -43,6 +46,9 @@ export default function WizardPage() {
   const [form, setForm] = useState({ rules: DEFAULT_FIELD_RULES, ...DEFAULT_FORM_COLORS });
   useEffect(() => { api.get('/reference/form-rules').then((f) => f?.rules && setForm(f)).catch(() => {}); }, []);
   const rules = form.rules;
+  // Admin Settings → Validation Rules (standard rules until loaded; the server checks again)
+  const [vr, setVr] = useState(DEFAULT_INPUT_RULES);
+  useEffect(() => { api.get('/reference/validation-rules').then((v) => v?.mrn && setVr(v)).catch(() => {}); }, []);
 
   // ---- load an existing draft
   useEffect(() => {
@@ -63,6 +69,18 @@ export default function WizardPage() {
       setLoading(false);
     }).catch((e) => { setLoadError(e); setLoading(false); });
   }, [editId, nav]);
+
+  // ---- "Start a request for this patient" from the Patients page: /requests/new?patient=<id>&q=<mrn>
+  useEffect(() => {
+    if (editId) return;
+    const sp = new URLSearchParams(window.location.search);
+    const pid = sp.get('patient'); const q = sp.get('q');
+    if (!pid || !q) return;
+    api.get(`/reference/patients${qs({ q })}`).then((list) => {
+      const p = list.find((x) => x.id === pid);
+      if (p) setD((x) => ({ ...x, patient: { id: p.id, name: p.name, mrn: p.mrn, identifierType: p.identifierType, identifier: '', identifierMasked: p.identifierMasked } }));
+    }).catch(() => {});
+  }, [editId]);
 
   const upd = (patch) => { setD((x) => ({ ...x, ...patch })); setErrs((e) => { const n = { ...e }; Object.keys(patch).forEach((k) => delete n[k]); return n; }); };
   const updPatient = (patch) => { setD((x) => ({ ...x, patient: { ...x.patient, ...patch } })); setErrs((e) => ({ ...e, patientName: undefined, mrn: undefined, identifier: undefined })); };
@@ -93,7 +111,7 @@ export default function WizardPage() {
   };
 
   const stepErrors = (n) => {
-    if (n === 1) return validatePatientStep(d, rules);
+    if (n === 1) return validatePatientStep(d, rules, vr);
     if (n === 2) return validateDestinationStep({ ...d, receivingFacilityId: otherFacility ? '' : d.receivingFacilityId, freeTextFacility: otherFacility ? d.freeTextFacility : '' }, today);
     if (n === 3) return validateAttachmentsStep(d, Object.keys(docs), rules);
     return {};
@@ -169,20 +187,20 @@ export default function WizardPage() {
   if (loading) return <Loading />;
   if (loadError) return <ErrorBox error={loadError} />;
 
-  const nextLabel = step === 4 ? <><Icon name="send" />Submit request</> : <>{fromReview ? 'Back to review' : 'Next'}<Icon name="next" /></>;
+  const nextLabel = step === 4 ? <><Icon name="send" />{t('action.submitRequest')}</> : <>{fromReview ? 'Back to review' : 'Next'}<Icon name="next" /></>;
   return (
     <div className={`wiz fr-scope ${form.highlightRequired ? 'hl-req' : ''}`} style={{ '--fr-req': form.requiredColor, '--fr-opt': form.optionalColor }}>
-      <div className="crumbs"><Link className="textlink" to="/">My Requests</Link><span>/</span><span>{draft.number ? `Draft ${draft.number}` : 'New request'}</span></div>
-      <div className="page-head"><div><div className="eyebrow">Step {step} of 4</div><h1 style={{ marginTop: 4 }}>{STEPS[step - 1]}</h1></div></div>
+      <div className="crumbs"><Link className="textlink" to="/">{t('nav.myRequests')}</Link><span>/</span><span>{draft.number ? `${statusLabelDraft()} ${draft.number}` : t('action.newRequest')}</span></div>
+      <div className="page-head"><div><div className="eyebrow">Step {step} of 4</div><h1 style={{ marginTop: 4 }}>{t(STEPS_KEYS[step - 1])}</h1></div></div>
       <div className="steps">
-        {STEPS.map((s, i) => (
+        {STEPS_KEYS.map((k) => t(k)).map((s, i) => (
           <div key={s} className={`step ${i + 1 < step ? 'done' : i + 1 === step ? 'cur' : ''}`}>
             <span className="n">{i + 1 < step ? <Icon name="check" /> : i + 1}</span><span>{s}</span>
           </div>
         ))}
       </div>
       <div className="card pad">
-        {step === 1 && <StepPatient d={d} user={user} errs={errs} upd={upd} updPatient={updPatient} rules={rules} />}
+        {step === 1 && <StepPatient d={d} user={user} errs={errs} upd={upd} updPatient={updPatient} rules={rules} vr={vr} />}
         {step === 2 && <StepDestination d={d} user={user} errs={errs} upd={upd} today={today} otherFacility={otherFacility} setOtherFacility={setOtherFacility} />}
         {step === 3 && <StepAttachments d={d} errs={errs} upd={upd} docs={docs} onUpload={uploadFile} onRemove={removeFile} busy={busy} rules={rules} />}
         {step === 4 && <StepReview d={d} user={user} docs={docs} rules={rules} otherFacility={otherFacility} confirmed={confirmed} setConfirmed={setConfirmed} errs={errs}
@@ -193,7 +211,7 @@ export default function WizardPage() {
               : <button className="btn" onClick={() => { setErrs({}); setFromReview(false); setStep(step - 1); }} disabled={busy}><Icon name="back" />Back</button>}
           </div>
           <div className="row">
-            <button className="btn" onClick={saveAndExit} disabled={busy}><Icon name="save" />Save as draft</button>
+            <button className="btn" onClick={saveAndExit} disabled={busy}><Icon name="save" />{t('action.saveDraft')}</button>
             <button className="btn primary" onClick={next} disabled={busy || !ready(step)}>{busy ? <span className="spinner" /> : nextLabel}</button>
           </div>
         </div>
@@ -203,48 +221,85 @@ export default function WizardPage() {
 }
 
 // ---------------------------------------------------------------- Step 1
-function StepPatient({ d, user, errs, upd, updPatient, rules }) {
+function StepPatient({ d, user, errs, upd, updPatient, rules, vr }) {
+  const idRule = vr[d.patient.identifierType === 'Passport' ? 'passport' : 'nationalId'];
+  const lenText = (r, unit) => (r.min === r.max ? `${r.min} ${unit}` : `${r.min}–${r.max} ${unit}`);
   const mark = (k) => (isRequired(rules, k, d) ? <span className="req">*</span> : <span className="opt-mark">Optional</span>);
   const ph = (k, text) => (isRequired(rules, k, d) ? text : `Optional${text ? `, ${text}` : ''}`);
   const [sugg, setSugg] = useState([]);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState('');   // which box the suggestions show under: 'name' | 'mrn' | ''
   const locked = !!d.patient.id;
   const timer = useRef(null);
-  const search = (q) => {
+  // Admin Settings → Integrations: if the MRN isn't registered, ask the EMR (only when a lookup connection is switched on)
+  const [emrOn, setEmrOn] = useState(false);
+  const [emr, setEmr] = useState(null); // { mrn, loading, list, error, importing }
+  useEffect(() => { api.get('/reference/integration-features').then((f) => setEmrOn(!!f?.mrnLookup)).catch(() => {}); }, []);
+  const search = (q, where) => {
     clearTimeout(timer.current);
-    if (q.trim().length < 2) { setSugg([]); return; }
-    timer.current = setTimeout(() => api.get(`/reference/patients${qs({ q })}`).then((r) => { setSugg(r); setOpen(true); }).catch(() => {}), 250);
+    setEmr(null);
+    if (q.trim().length < 2) { setSugg([]); setOpen(''); return; }
+    timer.current = setTimeout(() => api.get(`/reference/patients${qs({ q })}`).then((r) => {
+      setSugg(r); setOpen(where);
+      const mrn = q.replace(/\s+/g, '');
+      if (!r.length && where === 'mrn' && emrOn && mrn.length >= 3) {
+        setEmr({ mrn, loading: true });
+        api.get(`/patients/emr-lookup${qs({ mrn })}`).then((list) => setEmr((e) => (e?.mrn === mrn ? { mrn, list } : e)))
+          .catch((x) => setEmr((e) => (e?.mrn === mrn ? { mrn, error: x.message } : e)));
+      }
+    }).catch(() => {}), 250);
   };
+  const useEmr = async (p) => {
+    setEmr((e) => ({ ...e, importing: p.mrn }));
+    try { choose(await api.post('/patients/emr-import', { connectionId: p.connectionId, mrn: p.mrn })); setEmr(null); }
+    catch (x) { setEmr((e) => ({ ...e, importing: null, error: x.message })); }
+  };
+  const choose = (p) => { updPatient({ id: p.id, name: p.name, mrn: p.mrn, identifierType: p.identifierType, identifier: '', identifierMasked: p.identifierMasked }); setOpen(''); };
+  const list = (where, typed) => open === where && !locked && typed.trim().length >= 2 && (
+    <div className="list">
+      {sugg.length ? sugg.map((p) => (
+        <button key={p.id} type="button" className="opt" onMouseDown={(e) => e.preventDefault()} onClick={() => choose(p)}>
+          <span><b>{p.name}</b><br /><small className="muted">MRN {p.mrn} · {p.homeClinic}</small></span>
+        </button>
+      )) : emr?.loading ? <div className="opt muted" style={{ cursor: 'default' }}><span className="spinner" /> Not registered here — looking in the EMR…</div>
+        : emr?.list?.length ? emr.list.map((p) => (
+          <button key={`${p.connectionId}${p.mrn}`} type="button" className="opt emr" onMouseDown={(e) => e.preventDefault()} onClick={() => useEmr(p)} disabled={!!emr.importing}>
+            <span><b>{p.name}</b><span className="emr-tag">From {p.source}</span><br />
+              <small className="muted">MRN {p.mrn} · {p.homeClinic}{p.identifierMasked ? ` · ID ${p.identifierMasked}` : ''}{p.dateOfBirth ? ` · born ${fmtDate(p.dateOfBirth)}` : ''}</small><br />
+              <small className="textlink">{emr.importing === p.mrn ? 'Adding…' : 'Use this patient'}</small></span>
+          </button>
+        ))
+        : <div className="opt muted" style={{ cursor: 'default' }}>{emr?.error ? <>The EMR lookup didn’t work: {emr.error}<br /></> : emr?.list ? <>Not found in the EMR either.<br /></> : null}No registered patient matches. <Link className="textlink" to="/patients?new=1">Register the patient</Link> or type the details manually.</div>}
+    </div>
+  );
   return (
     <div className="form-grid">
-      <label className="lbl" htmlFor="w-name">Patient name <span className="req">*</span></label>
+      <label className="lbl" htmlFor="w-mrn">{t('field.mrn')} <span className="req">*</span></label>
       <div>
         <div className="suggest">
-          <input id="w-name" className={`input ${errs.patientName ? 'err' : ''}`} value={d.patient.name} readOnly={locked} autoComplete="off"
-            placeholder="Type 2+ letters or the MRN to search your clinic’s patients"
-            onChange={(e) => { updPatient({ name: e.target.value }); search(e.target.value); }}
-            onFocus={() => sugg.length && setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} />
-          {open && !locked && d.patient.name.trim().length >= 2 && (
-            <div className="list">
-              {sugg.length ? sugg.map((p) => (
-                <button key={p.id} type="button" className="opt" onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => { updPatient({ id: p.id, name: p.name, mrn: p.mrn, identifierType: p.identifierType, identifier: '', identifierMasked: p.identifierMasked }); setOpen(false); }}>
-                  <span><b>{p.name}</b><br /><small className="muted">MRN {p.mrn} · {p.homeClinic}</small></span>
-                </button>
-              )) : <div className="opt muted" style={{ cursor: 'default' }}>No match in your clinic’s patient list. Enter the details manually.</div>}
-            </div>
-          )}
+          <input id="w-mrn" className={`input ${errs.mrn ? 'err' : ''}`} inputMode={vr.mrn.chars === 'digits' ? 'numeric' : 'text'} maxLength={vr.mrn.max} value={d.patient.mrn} readOnly={locked} autoComplete="off"
+            placeholder="Type 2+ digits of the MRN to search your clinic’s patients"
+            onChange={(e) => { updPatient({ mrn: e.target.value }); search(e.target.value, 'mrn'); }}
+            onFocus={() => sugg.length && d.patient.mrn.trim().length >= 2 && setOpen('mrn')} onBlur={() => setTimeout(() => setOpen(''), 150)} />
+          {list('mrn', d.patient.mrn)}
         </div>
         {locked
           ? <div className="row" style={{ marginTop: 6, gap: 10 }}><span className="src-note"><Icon name="info" />Selected from the patient list — read-only</span>
             <button type="button" className="textlink" onClick={() => updPatient({ id: null, name: '', mrn: '', identifier: '', identifierMasked: '', identifierType: 'NationalId' })}>Change patient</button></div>
-          : <div className="help">If the patient isn’t found, type their details manually.</div>}
-        <FieldError msg={errs.patientName} />
+          : <div className="help">Search by MRN here or by name below. If the patient isn’t found, type their details manually.</div>}
+        <FieldError msg={errs.mrn} />
       </div>
 
-      <label className="lbl" htmlFor="w-mrn">Patient MRN <span className="req">*</span></label>
-      <div><input id="w-mrn" className={`input ${errs.mrn ? 'err' : ''}`} inputMode="numeric" value={d.patient.mrn} readOnly={locked}
-        onChange={(e) => updPatient({ mrn: e.target.value })} placeholder="Numbers only" /><FieldError msg={errs.mrn} /></div>
+      <label className="lbl" htmlFor="w-name">{t('field.patientName')} <span className="req">*</span></label>
+      <div>
+        <div className="suggest">
+          <input id="w-name" className={`input ${errs.patientName ? 'err' : ''}`} value={d.patient.name} readOnly={locked} autoComplete="off"
+            placeholder="Or type 2+ letters of the name to search"
+            onChange={(e) => { updPatient({ name: e.target.value }); search(e.target.value, 'name'); }}
+            onFocus={() => sugg.length && d.patient.name.trim().length >= 2 && setOpen('name')} onBlur={() => setTimeout(() => setOpen(''), 150)} />
+          {list('name', d.patient.name)}
+        </div>
+        <FieldError msg={errs.patientName} />
+      </div>
 
       <span className="lbl">National ID / Iqama / Passport No. <span className="req">*</span></span>
       <div>
@@ -254,7 +309,7 @@ function StepPatient({ d, user, errs, upd, updPatient, rules }) {
               <option value="NationalId">National ID / Iqama</option><option value="Passport">Passport</option>
             </select>
             <input className={`input ${errs.identifier ? 'err' : ''}`} aria-label="ID number" value={d.patient.identifier}
-              placeholder={d.patient.identifierType === 'NationalId' ? '10 digits' : '6–9 letters or digits'} onChange={(e) => updPatient({ identifier: e.target.value })} />
+              maxLength={idRule.max} placeholder={lenText(idRule, idRule.chars === 'digits' ? 'digits' : 'letters or digits')} onChange={(e) => updPatient({ identifier: e.target.value })} />
           </div>}
         <FieldError msg={errs.identifier} />
       </div>
@@ -281,10 +336,10 @@ function StepPatient({ d, user, errs, upd, updPatient, rules }) {
         <FieldError msg={errs.relativeName} /></div>
       </>}
 
-      <label className="lbl" htmlFor="w-home">Home clinic</label><div><input id="w-home" className="input" readOnly value={user.clinics.map((c) => c.name).join(', ')} /></div>
-      <label className="lbl" htmlFor="w-staff">Requesting staff</label><div><input id="w-staff" className="input" readOnly value={user.name} /></div>
+      <label className="lbl" htmlFor="w-home">{t('field.homeClinic')}</label><div><input id="w-home" className="input" readOnly value={user.clinics.map((c) => c.name).join(', ')} /></div>
+      <label className="lbl" htmlFor="w-staff">{t('field.requestingStaff')}</label><div><input id="w-staff" className="input" readOnly value={user.name} /></div>
 
-      <span className="lbl">Destination type <span className="req">*</span></span>
+      <span className="lbl">{t('field.destinationType')} <span className="req">*</span></span>
       <div>
         <div className="radios" role="radiogroup">
           {[[DEST.INTERNAL, 'Another network clinic — the clinic approves in the portal'],
@@ -293,7 +348,7 @@ function StepPatient({ d, user, errs, upd, updPatient, rules }) {
             <label key={v} className="radio-card">
               <input type="radio" name="destType" checked={d.destinationType === v}
                 onChange={() => upd({ destinationType: v, destinationCity: '', destinationCountry: '', receivingFacilityId: '', freeTextFacility: '' })} />
-              <span><b>{DEST_LABELS[v]}</b><small>{help}</small></span>
+              <span><b>{destLabel(v)}</b><small>{help}</small></span>
             </label>
           ))}
         </div>
@@ -327,7 +382,7 @@ function StepDestination({ d, errs, upd, today, otherFacility, setOtherFacility 
   const facValue = otherFacility ? '__other' : d.receivingFacilityId;
   return (
     <>
-      <div className="banner info"><Icon name="info" /><span><b>{d.patient.name}</b> · MRN {d.patient.mrn} · {DEST_LABELS[d.destinationType]}</span></div>
+      <div className="banner info"><Icon name="info" /><span><b>{d.patient.name}</b> · MRN {d.patient.mrn} · {destLabel(d.destinationType)}</span></div>
       <div className="form-grid">
         {intl ? (
           <>
@@ -351,7 +406,7 @@ function StepDestination({ d, errs, upd, today, otherFacility, setOtherFacility 
             <FieldError msg={errs.destinationCity} /></div>
           </>
         )}
-        <label className="lbl" htmlFor="w-fac">Receiving facility <span className="req">*</span></label>
+        <label className="lbl" htmlFor="w-fac">{t('field.receivingFacility')} <span className="req">*</span></label>
         <div>
           <select id="w-fac" className={`select input ${errs.receivingFacilityId ? 'err' : ''}`} value={facValue}
             disabled={intl ? !d.destinationCountry : !d.destinationCity}
@@ -448,15 +503,15 @@ function StepReview({ d, user, docs, rules, otherFacility, confirmed, setConfirm
     <>
       <div className="review-grid">
         <Sec title="Patient & Destination" step={1} rows={[
-          ['Patient name', d.patient.name], ['MRN', d.patient.mrn],
+          [t('field.mrn'), d.patient.mrn], [t('field.patientName'), d.patient.name],
           ['ID number', d.patient.id ? d.patient.identifierMasked : `${d.patient.identifier} (${d.patient.identifierType === 'Passport' ? 'Passport' : 'National ID / Iqama'})`],
           ...(isHidden(rules, 'patientMobile') ? [] : [['Patient mobile', d.patientMobile || '—']]),
           ...(isHidden(rules, 'relativeMobile') && isHidden(rules, 'relativeName') ? [] : [['Relative', d.relativeMobile || d.relativeName ? [d.relativeName, d.relativeMobile].filter(Boolean).join(' · ') : '—']]),
-          ['Home clinic', user.clinics.map((c) => c.name).join(', ')], ['Requesting staff', user.name], ['Destination type', DEST_LABELS[d.destinationType]],
+          [t('field.homeClinic'), user.clinics.map((c) => c.name).join(', ')], [t('field.requestingStaff'), user.name], [t('field.destinationType'), destLabel(d.destinationType)],
         ]} />
         <Sec title="Clinical & Destination Details" step={2} rows={[
           ['Destination', d.destinationType === DEST.INTERNATIONAL ? `${d.destinationCity}, ${d.destinationCountry}` : `${d.destinationCity}, KSA`],
-          ['Receiving facility', facName], ['Travel start', fmtDate(d.travelStart)], ['Travel end', fmtDate(d.travelEnd)],
+          [t('field.receivingFacility'), facName], ['Travel start', fmtDate(d.travelStart)], ['Travel end', fmtDate(d.travelEnd)],
           ['Length of stay', d.travelStart && d.travelEnd ? `${daysBetween(d.travelStart, d.travelEnd)} days` : '—'], ['Sessions', d.sessionsRequired],
         ]} />
       </div>

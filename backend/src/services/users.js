@@ -64,6 +64,30 @@ export async function matchPassword(email, password) {
   return { id: row.id, status: row.status };
 }
 
+/**
+ * Clinics this user name may choose on the sign-in page.
+ * An empty name, an unknown name, an inactive account, and an account with no clinic
+ * (coordination and IT) all return an empty list — the same shape, so the page does not
+ * say whether the user name exists.
+ */
+export async function clinicsForSignIn(username) {
+  const name = String(username ?? '').trim().slice(0, 256);
+  if (!name) return [];
+  const { rows } = await query(
+    `SELECT f.id, f.facility_name AS name, c.city_name AS city
+       FROM portal_user u
+       JOIN user_clinic_scope s ON s.user_id = u.id
+            AND s.effective_from <= current_date AND (s.effective_to IS NULL OR s.effective_to >= current_date)
+       JOIN facility f ON f.id = s.facility_id
+            AND f.facility_type = 'DiaverumClinic' AND f.is_active
+       LEFT JOIN city c ON c.id = f.city_id
+      WHERE u.account_status = 'Active' AND lower(u.email) = lower($1)
+      ORDER BY f.facility_name`,
+    [name],
+  );
+  return rows.map((r) => ({ id: r.id, name: r.name, city: r.city || null }));
+}
+
 /** Active network clinic, id and name only. */
 export async function activeClinic(id) {
   if (!isUuid(id)) return null;

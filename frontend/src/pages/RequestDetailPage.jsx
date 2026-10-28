@@ -5,12 +5,14 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, qs, ApiError } from '../api.js';
 import { useAuth, roleHelpers } from '../auth.jsx';
 import { Icon } from '../components/Icon.jsx';
-import DateRangePicker, { addDaysIso } from '../components/DateRangePicker.jsx';
 import { Timeline } from '../components/Timeline.jsx';
+import DateRangePicker, { addDaysIso } from '../components/DateRangePicker.jsx';
+import { CONFIRMED_DATES_TOLERANCE_DAYS } from '@domain/constants.js';
 import { useUi, StatusPill, DestChip, Loading, ErrorBox, FieldError, Modal, fmtSize } from '../components/ui.jsx';
-import { DEST, DEST_LABELS, DOC_TYPES, REASON_MAX, MAX_DATE_OPTIONS, CONFIRMED_DATES_TOLERANCE_DAYS } from '@domain/constants.js';
+import { DEST, DEST_LABELS, DOC_TYPES, REASON_MAX, MAX_DATE_OPTIONS } from '@domain/constants.js';
 import { validateConfirmedDates, validateReason, isEmail, validateFile, validateDateOptions } from '@domain/validation.js';
 import { fmtRange, fmtTS, daysBetween } from '../lib/format.js';
+import { t, destLabel } from '../terms.jsx';
 
 export default function RequestDetailPage() {
   const { id } = useParams();
@@ -92,7 +94,7 @@ export default function RequestDetailPage() {
 
   return (
     <>
-      <div className="crumbs"><Link className="textlink" to="/">{h.isClinicStaff ? 'My Requests' : 'Work Queue'}</Link><span>/</span><span className="mono">{r.requestNumber}</span></div>
+      <div className="crumbs"><Link className="textlink" to="/">{h.isClinicStaff ? t('nav.myRequests') : t('nav.workQueue')}</Link><span>/</span><span className="mono">{r.requestNumber}</span></div>
       <div className="detail-head">
         <div>
           <div className="row" style={{ gap: 12 }}><h1>Request <span className="mono" style={{ fontSize: '.95em' }}>{r.requestNumber}</span></h1>{r.destinationType && <DestChip type={r.destinationType} />}</div>
@@ -114,23 +116,28 @@ export default function RequestDetailPage() {
 
           <details className="sec" open><summary><Icon name="user" />Patient & Destination<Icon name="chev" className="chev" /></summary>
             <div className="body">{kv([
-              ['Patient name', r.patientName], ['MRN', r.mrn],
+              [t('field.patientName'), r.patientName], ['MRN', r.mrn],
               ['ID number', r.identifierMasked ? `${r.identifierMasked} (${r.identifierType === 'Passport' ? 'Passport' : 'National ID / Iqama'})` : '—'],
               ['Patient mobile', r.contacts?.patientMobile ? <a href={`tel:${r.contacts.patientMobile}`} dir="ltr">{fmtPhone(r.contacts.patientMobile)}</a> : '—'],
               ['Relative', r.contacts?.relativeMobile || r.contacts?.relativeName
                 ? <>{r.contacts.relativeName}{r.contacts.relativeName && r.contacts.relativeMobile ? ' · ' : ''}{r.contacts.relativeMobile && <a href={`tel:${r.contacts.relativeMobile}`} dir="ltr">{fmtPhone(r.contacts.relativeMobile)}</a>}</> : '—'],
-              ['Home clinic', r.requestingFacilityName], ['Requesting staff', r.createdByName], ['Destination type', DEST_LABELS[r.destinationType]],
+              [t('field.homeClinic'), r.requestingFacilityName], [t('field.requestingStaff'), r.createdByName], [t('field.destinationType'), destLabel(r.destinationType)],
             ])}</div></details>
 
           <details className="sec" open><summary><Icon name="plane" />Clinical & Travel Details<Icon name="chev" className="chev" /></summary>
             <div className="body">{kv([
               ['Destination', [r.destinationCity, r.destinationType === DEST.INTERNATIONAL ? r.destinationCountryName : 'KSA'].filter(Boolean).join(', ')],
-              ['Receiving facility', <>{r.receivingFacilityName || r.freeTextFacility || '—'}{r.selectedFacilityId && r.selectedFacilityId !== r.receivingFacilityId && <span className="muted"> (emailed to {r.selectedFacilityName})</span>}</>],
+              [t('field.receivingFacility'), <>{r.receivingFacilityName || r.freeTextFacility || '—'}{r.selectedFacilityId && r.selectedFacilityId !== r.receivingFacilityId && <span className="muted"> (emailed to {r.selectedFacilityName})</span>}</>],
               ['Travel dates', r.travelStart ? <>{fmtRange(r.travelStart, r.travelEnd)} <span className="muted">({daysBetween(r.travelStart, r.travelEnd)} days)</span></> : '—'],
               ['Sessions requested', r.sessionsRequired], ['Modality', r.modality], ['MOD approval applies', r.modApplies ? 'Yes' : 'No'],
               ...(r.decision ? [[r.decision.type === 'Approved' ? 'Confirmed sessions' : 'Reason', r.decision.type === 'Approved' ? fmtRange(r.decision.confirmedStart, r.decision.confirmedEnd) : r.decision.reason],
                 ...(r.decision.notes ? [['Provider notes', r.decision.notes]] : [])] : []),
             ])}</div></details>
+
+          {r.proposals?.length > 0 && (
+            <details className="sec" open><summary><Icon name="clock" />Proposed Dates <span className="muted small" style={{ fontWeight: 500 }}>({r.proposals.length} round{r.proposals.length === 1 ? '' : 's'})</span><Icon name="chev" className="chev" /></summary>
+              <div className="body stack" style={{ gap: 14 }}>{r.proposals.slice().reverse().map((p) => <ProposalCard key={p.id} p={p} />)}</div></details>
+          )}
 
           <details className="sec" open><summary><Icon name="clip" />Attachments <span className="muted small" style={{ fontWeight: 500 }}>({r.documents.length})</span><Icon name="chev" className="chev" /></summary>
             <div className="body" style={{ padding: '0 0 4px' }}>
@@ -147,11 +154,6 @@ export default function RequestDetailPage() {
               ) : <div className="empty">No attachments yet.</div>}
               {r.status !== 'Draft' && <p className="small muted" style={{ padding: '10px 18px 6px' }}>Attachments are locked after submission. Every view and download is recorded.</p>}
             </div></details>
-
-          {r.proposals?.length > 0 && (
-            <details className="sec" open><summary><Icon name="clock" />Proposed Dates <span className="muted small" style={{ fontWeight: 500 }}>({r.proposals.length} round{r.proposals.length === 1 ? '' : 's'})</span><Icon name="chev" className="chev" /></summary>
-              <div className="body stack" style={{ gap: 14 }}>{r.proposals.slice().reverse().map((p) => <ProposalCard key={p.id} p={p} />)}</div></details>
-          )}
 
           {r.communications.length > 0 && (
             <details className="sec" open><summary><Icon name="mail" />Provider Email History<Icon name="chev" className="chev" /></summary>
@@ -252,7 +254,7 @@ function ClinicResponsePanel({ r, act, confirm, canPropose, proposeBlocked }) {
       <div>
         <label className="small" style={{ fontWeight: 600 }}>Confirmed session dates <span style={{ color: 'var(--bad-fg)' }}>*</span></label>
         <div style={{ marginTop: 6 }}><SessionsPicker r={r} start={start} end={end} invalid={!!err.confirmedDates} onChange={(v) => { setStart(v.start); setEnd(v.end); setErr({}); }} /></div>
-        <p className="hint" style={{ marginTop: 4 }}>Requested: {fmtRange(r.travelStart, r.travelEnd)}</p>
+        <p className="hint" style={{ marginTop: 4 }}>Requested: {fmtRange(r.travelStart, r.travelEnd)}. The calendar shades them.</p>
         <FieldError msg={err.confirmedDates} />
       </div>
       <button className="btn brand block" disabled={!start || !end} onClick={approve}><Icon name="checkc" />Approve (confirm sessions)</button>
@@ -511,17 +513,13 @@ function AnswerProposalPanel({ r, act, confirm, canAskAgain, askBlocked }) {
     if (!(await confirm({ title: 'Ask for other dates?', body: r.destinationType === 'Internal' ? `${r.receivingFacilityName} will be asked to propose other dates, approve or reject.` : 'The coordination team will contact the provider again.', ok: 'Ask for other dates', tone: 'brand' }))) return;
     try { await act(() => api.post(`/requests/${r.id}/request-other-dates`, { reason, rowVersion: r.rowVersion }), 'Other dates requested'); } catch (x) { setErr(x.fields || {}); }
   };
-  const withdraw = async () => {
-    if (!(await confirm({ title: 'Withdraw this request?', body: 'The request will be closed as Withdrawn and the coordination team told that no action is needed. This cannot be undone.', ok: 'Withdraw request', tone: 'danger' }))) return;
-    await act(() => api.post(`/requests/${r.id}/withdraw`, { rowVersion: r.rowVersion }), 'Request withdrawn');
-  };
   return (
     <div className="stack" style={{ gap: 14 }}>
       <div><h2>Other Dates Proposed</h2>
         <p className="hint">{p.source === 'ExternalProvider' ? (r.selectedFacilityName || r.freeTextFacility || 'The provider') : r.receivingFacilityName} can't take {fmtRange(r.travelStart, r.travelEnd)}. Choose one option, or ask for other dates.</p></div>
       {p.message && <div className="waiting"><Icon name="chat" /><span style={{ whiteSpace: 'pre-line' }}>{p.message}</span></div>}
       <div className="seg" role="radiogroup">
-        {[['accept', 'Accept a date'], ['again', 'None work'], ['cancel', 'Cancel']].map(([k, l]) => <label key={k}><input type="radio" name="ans" checked={mode === k} onChange={() => { setMode(k); setErr({}); }} />{l}</label>)}
+        {[['accept', 'Accept a date'], ['again', 'None work']].map(([k, l]) => <label key={k}><input type="radio" name="ans" checked={mode === k} onChange={() => { setMode(k); setErr({}); }} />{l}</label>)}
       </div>
       {mode === 'accept' ? (
         <>
@@ -546,11 +544,6 @@ function AnswerProposalPanel({ r, act, confirm, canAskAgain, askBlocked }) {
             )}
             <FieldError msg={err.approvalFile || err.approvals} /></div>
           <button className="btn brand block" disabled={!choice} onClick={accept}><Icon name="checkc" />Accept and confirm</button>
-        </>
-      ) : mode === 'cancel' ? (
-        <>
-          <p className="hint" style={{ margin: 0 }}>The request will be closed as Withdrawn. The coordination team is told that no action is needed. This cannot be undone.</p>
-          <button className="btn danger block" onClick={withdraw}><Icon name="x" />Withdraw request</button>
         </>
       ) : canAskAgain ? (
         <>

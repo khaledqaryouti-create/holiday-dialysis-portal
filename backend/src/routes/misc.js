@@ -5,6 +5,8 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { ROLES } from '../domain/constants.js';
 import * as ref from '../services/reference.js';
 import { formRules } from '../services/formSettings.js';
+import { currentInputRules } from '../services/validationSettings.js';
+import { integrationFeatures } from '../services/integrations/engine.js';
 import { reportSummary } from '../services/reports.js';
 import * as notes from '../services/notifications.js';
 import { audit } from '../services/audit.js';
@@ -18,6 +20,8 @@ referenceRouter.get('/facilities', ah(async (req, res) => res.json(await ref.lis
 }))));
 referenceRouter.get('/destination-cities', ah(async (req, res) => res.json(await ref.destinationCities(req.user, req.query.destinationType))));
 referenceRouter.get('/countries', ah(async (req, res) => res.json(await ref.listCountries({ excludeKsa: req.query.all !== '1' }))));
+referenceRouter.get('/integration-features', ah(async (_req, res) => res.json(await integrationFeatures())));
+referenceRouter.get('/validation-rules', ah(async (_req, res) => res.json(await currentInputRules())));
 referenceRouter.get('/form-rules', ah(async (_req, res) => res.json(await formRules())));
 referenceRouter.get('/providers', ah(async (_req, res) => res.json(await ref.listProviders())));
 

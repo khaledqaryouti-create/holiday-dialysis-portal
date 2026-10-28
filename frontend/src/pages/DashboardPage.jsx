@@ -1,4 +1,5 @@
 // Screen 2 — Dashboard ("My Requests" / "Work Queue"), spec §5. Filters live in the URL so Reports can drill down here.
+import RequestsTabs from '../components/RequestsTabs.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, qs } from '../api.js';
@@ -9,6 +10,7 @@ import { StatusPill, DestChip, DaysPending, ErrorBox, Loading } from '../compone
 import { STATUS_ORDER, STATUS_META, DEST_LABELS } from '@domain/constants.js';
 import { visibleDestinationTypes } from '@domain/access.js';
 import { fmtRange, fmtTS, daysBetween } from '../lib/format.js';
+import { t, statusLabel, destLabel } from '../terms.jsx';
 
 const KPI_ICON = { inprog: 'clock', mine: 'building', conf: 'checkc', drafts: 'doc', toemail: 'send', awaiting: 'mail', overdue: 'alert', pcr: 'building', ready: 'flag' };
 const FILTER_KEYS = ['q', 'status', 'dest', 'clinic', 'from', 'to', 'kpi', 'sort', 'dir', 'page'];
@@ -73,15 +75,19 @@ export default function DashboardPage() {
     );
   };
 
-  const title = h.isClinicStaff ? 'My Requests' : 'Work Queue';
+  const title = h.isClinicStaff ? t('nav.myRequests') : t('nav.workQueue');
   const sub = h.isClinicStaff ? `Requests sent from or received by ${user.clinics.map((c) => c.name).join(', ')}.`
     : h.isCoordInternal && h.isCoordIntl ? 'All requests.' : h.isCoordInternal ? 'All requests between network clinics.' : 'All External KSA and International requests.';
 
   return (
     <>
+      {(h.isClinicStaff || h.isAdmin) && <RequestsTabs />}
       <div className="page-head">
         <div><h1>{title}</h1><p>{sub}</p></div>
-        {h.isClinicStaff && <Link className="btn primary" to="/requests/new"><Icon name="plus" />New Request</Link>}
+        <div className="row">
+          {(h.isClinicStaff || h.isAdmin) && <Link className="btn" to="/patients?new=1"><Icon name="user" />{t('action.registerPatient')}</Link>}
+          {h.isClinicStaff && <Link className="btn primary" to="/requests/new"><Icon name="plus" />{t('action.newRequest')}</Link>}
+        </div>
       </div>
 
       {waitingMine > 0 && (
@@ -112,7 +118,7 @@ export default function DashboardPage() {
               <div className="menu">
                 {statusOpts.map((s) => (
                   <label key={s}><input type="checkbox" checked={statuses.includes(s)}
-                    onChange={(e) => set({ status: e.target.checked ? [...statuses, s] : statuses.filter((x) => x !== s) })} /> {STATUS_META[s].label}</label>
+                    onChange={(e) => set({ status: e.target.checked ? [...statuses, s] : statuses.filter((x) => x !== s) })} /> {statusLabel(s)}</label>
                 ))}
               </div>
             </details>
@@ -120,7 +126,7 @@ export default function DashboardPage() {
           {destOpts.length > 1 && (
             <div className="f"><label htmlFor="f-dest">Destination type</label>
               <select id="f-dest" className="select input" value={f.dest} onChange={(e) => set({ dest: e.target.value })}>
-                <option value="">All</option>{destOpts.map((d) => <option key={d} value={d}>{DEST_LABELS[d]}</option>)}
+                <option value="">All</option>{destOpts.map((d) => <option key={d} value={d}>{destLabel(d)}</option>)}
               </select></div>
           )}
           {h.isCoord && (

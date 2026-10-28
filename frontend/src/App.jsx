@@ -9,17 +9,16 @@ import WizardPage from './pages/WizardPage.jsx';
 import RequestDetailPage from './pages/RequestDetailPage.jsx';
 import ReportsPage from './pages/ReportsPage.jsx';
 import AdminPage from './pages/AdminPage.jsx';
+import PatientsPage from './pages/PatientsPage.jsx';
 import NotificationsPage from './pages/NotificationsPage.jsx';
 import HelpPage from './pages/HelpPage.jsx';
 import ChangePasswordPage from './pages/ChangePasswordPage.jsx';
-import SetPasswordPage from './pages/SetPasswordPage.jsx';
 import { useBranding } from './branding.jsx';
 import { BrandBlock, ContactMenu } from './components/Brand.jsx';
+import { t } from './terms.jsx';
 
 export default function App() {
   const { loading, user, options } = useAuth();
-  const { pathname } = useLocation();
-  if (pathname === '/set-password') return <SetPasswordPage />;
   if (loading) return <Loading />;
   if (!user) return <LoginPage />;
   if (user.mustChangePassword) return <ChangePasswordPage forced />;
@@ -32,6 +31,7 @@ export default function App() {
         <Route path="requests/new" element={h.isClinicStaff ? <WizardPage /> : <Navigate to={home} replace />} />
         <Route path="requests/:id/edit" element={<WizardPage />} />
         <Route path="requests/:id" element={<RequestDetailPage />} />
+        <Route path="patients" element={h.isClinicStaff || h.isAdmin ? <PatientsPage /> : <Navigate to={home} replace />} />
         <Route path="reports" element={h.usesRequests ? <ReportsPage /> : <Navigate to={home} replace />} />
         <Route path="admin/*" element={h.isAdmin ? <AdminPage /> : <Navigate to={home} replace />} />
         <Route path="notifications" element={<NotificationsPage />} />
@@ -48,15 +48,16 @@ function Layout() {
   const brand = useBranding();
   const h = roleHelpers(user);
   const loc = useLocation();
-  const onRequests = loc.pathname === '/' || loc.pathname.startsWith('/requests');
+  const onRequests = loc.pathname === '/' || loc.pathname.startsWith('/requests') || loc.pathname.startsWith('/patients');
   const nav = [
-    ...(h.usesRequests ? [{ to: '/', label: h.isClinicStaff ? 'My Requests' : 'Work Queue', icon: 'list', on: onRequests }] : []),
-    ...(h.usesRequests ? [{ to: '/reports', label: 'Reports', icon: 'chart' }] : []),
-    ...(h.isAdmin ? [{ to: '/admin', label: 'Admin Settings', icon: 'gear' }] : []),
-    { to: '/help', label: 'Help', icon: 'help' },
+    ...(h.usesRequests ? [{ to: '/', label: h.isClinicStaff ? t('nav.myRequests') : t('nav.workQueue'), icon: 'list', on: onRequests }] : []),
+    ...(h.usesRequests ? [{ to: '/reports', label: t('nav.reports'), icon: 'chart' }] : []),
+    ...(h.isAdmin && !h.usesRequests ? [{ to: '/patients', label: t('nav.patients'), icon: 'users' }] : []),
+    ...(h.isAdmin ? [{ to: '/admin', label: t('nav.adminSettings'), icon: 'gear' }] : []),
+    { to: '/help', label: t('nav.help'), icon: 'help' },
   ];
   const roleText = user.roles.map((r) => ROLE_LABELS[r]).join(', ');
-  const clinicText = user.loginClinic?.name || '';
+  const clinicText = user.clinics.map((c) => c.name).join(', ');
   return (
     <>
       <header className={`top ${brand.enabled && (brand.logoUrl || brand.companyName) ? 'branded' : ''}`}>
@@ -82,7 +83,7 @@ function Layout() {
               <span className="who-t"><b>{user.name}</b><small>{roleText}{clinicText ? ` · ${clinicText}` : ''}</small></span>
             </div>
             {user.hasLocalPassword && options?.local && <NavLink to="/account/password" className="btn sm on-dark ghost" style={{ textDecoration: 'none' }}>Password</NavLink>}
-            <button className="btn sm on-dark ghost" onClick={logout}>Sign out</button>
+            <button className="btn sm on-dark ghost" onClick={logout}>{mode === 'dev' ? 'Switch user' : 'Sign out'}</button>
           </div>
         </div>
       </header>

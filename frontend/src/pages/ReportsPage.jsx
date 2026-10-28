@@ -7,8 +7,9 @@ import { Icon } from '../components/Icon.jsx';
 import DateRangePicker from '../components/DateRangePicker.jsx';
 import { BarList, Columns } from '../components/Charts.jsx';
 import { Loading, ErrorBox } from '../components/ui.jsx';
-import { STATUS_META, DEST_LABELS, SLA_STAGES } from '@domain/constants.js';
+import { SLA_STAGES } from '@domain/constants.js';
 import { visibleDestinationTypes } from '@domain/access.js';
+import { t, statusLabel, destLabel } from '../terms.jsx';
 
 export default function ReportsPage() {
   const { user } = useAuth();
@@ -36,14 +37,14 @@ export default function ReportsPage() {
   }, [h.isCoord, h.isCoordIntl]);
 
   const dests = visibleDestinationTypes(user);
-  const t = data?.totals;
+  const totals = data?.totals;
   const scope = h.isClinicStaff ? `Requests from ${user.clinics.map((c) => c.name).join(', ')}, and Internal requests it received.`
     : h.isCoordInternal && !h.isCoordIntl ? 'All Internal-network requests.' : 'All External KSA and International requests.';
 
   return (
     <>
       <div className="page-head">
-        <div><h1>Reports</h1><p>{scope} Filtered by submission date.</p></div>
+        <div><h1>{t('nav.reports')}</h1><p>{scope} Filtered by submission date.</p></div>
         <a className="btn" href={`/api/reports/export.csv${qs(applied)}`}><Icon name="dl" />Export</a>
       </div>
       <div className="card" style={{ marginBottom: 16 }}><div className="filters" style={{ border: 0 }}>
@@ -62,7 +63,7 @@ export default function ReportsPage() {
         {dests.length > 1 && (
           <div className="f"><label htmlFor="rf-dest">Destination type</label>
             <select id="rf-dest" className="select input" value={filters.dest} onChange={(e) => setFilters({ ...filters, dest: e.target.value })}>
-              <option value="">All</option>{dests.map((d) => <option key={d} value={d}>{DEST_LABELS[d]}</option>)}
+              <option value="">All</option>{dests.map((d) => <option key={d} value={d}>{destLabel(d)}</option>)}
             </select></div>
         )}
         {h.isCoordIntl && (
@@ -82,17 +83,17 @@ export default function ReportsPage() {
       {data && (
         <>
           <div className="kpis">
-            <div className="kpi" style={{ cursor: 'default' }}><span className="ic"><Icon name="doc" /></span><span><b>{t.submitted}</b><span>Requests submitted</span></span></div>
-            <div className="kpi" style={{ cursor: 'default' }}><span className="ic"><Icon name="checkc" /></span><span><b>{t.decided ? `${Math.round((t.approved / t.decided) * 100)}%` : '—'}</b><span>Accepted ({t.approved} of {t.decided} decided)</span></span></div>
-            <div className="kpi" style={{ cursor: 'default' }}><span className="ic"><Icon name="clock" /></span><span><b>{t.medianDaysToDecision == null ? '—' : `${t.medianDaysToDecision.toFixed(1)} d`}</b><span>Median time to decision</span></span></div>
-            <div className="kpi bad" style={{ cursor: 'default' }}><span className="ic"><Icon name="alert" /></span><span><b>{t.overdue}</b><span>Overdue now</span></span></div>
+            <div className="kpi" style={{ cursor: 'default' }}><span className="ic"><Icon name="doc" /></span><span><b>{totals.submitted}</b><span>Requests submitted</span></span></div>
+            <div className="kpi" style={{ cursor: 'default' }}><span className="ic"><Icon name="checkc" /></span><span><b>{totals.decided ? `${Math.round((totals.approved / totals.decided) * 100)}%` : '—'}</b><span>Accepted ({totals.approved} of {totals.decided} decided)</span></span></div>
+            <div className="kpi" style={{ cursor: 'default' }}><span className="ic"><Icon name="clock" /></span><span><b>{totals.medianDaysToDecision == null ? '—' : `${totals.medianDaysToDecision.toFixed(1)} d`}</b><span>Median time to decision</span></span></div>
+            <div className="kpi bad" style={{ cursor: 'default' }}><span className="ic"><Icon name="alert" /></span><span><b>{totals.overdue}</b><span>Overdue now</span></span></div>
           </div>
           <div className="rep-grid">
             <div className="card chart-card"><div className="pad"><h3>Requests by status <small>Click a bar to see the list</small></h3>
-              <BarList rows={data.byStatus.map((x) => ({ ...x, label: STATUS_META[x.key].label }))} onSelect={(x) => nav(`/${qs({ status: x.key, dest: applied.dest })}`)} /></div></div>
+              <BarList rows={data.byStatus.map((x) => ({ ...x, label: statusLabel(x.key) }))} onSelect={(x) => nav(`/${qs({ status: x.key, dest: applied.dest })}`)} /></div></div>
             <div className="card chart-card"><div className="pad"><h3>Requests by month submitted</h3><Columns rows={data.months} /></div></div>
             <div className="card chart-card"><div className="pad"><h3>By destination type <small>Click a bar to see the list</small></h3>
-              <BarList rows={data.byDest.map((x) => ({ ...x, label: DEST_LABELS[x.key] }))} onSelect={(x) => nav(`/${qs({ dest: x.key })}`)} /></div></div>
+              <BarList rows={data.byDest.map((x) => ({ ...x, label: destLabel(x.key) }))} onSelect={(x) => nav(`/${qs({ dest: x.key })}`)} /></div></div>
             <div className="card chart-card"><div className="pad"><h3>Top receiving facilities</h3><BarList rows={data.topFacilities.map((x) => ({ ...x, label: x.key }))} /></div></div>
           </div>
           <div className="card" style={{ marginTop: 16 }}>

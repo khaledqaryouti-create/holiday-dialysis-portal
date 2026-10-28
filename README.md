@@ -140,7 +140,7 @@ links are refused, and logos are served with a sandboxing Content-Security-Polic
 All under `/api`; JSON; session cookie; writes need header `X-Requested-With: hdp`.
 | Method & path | Purpose |
 |---|---|
-| `GET /auth/clinics` (sign-in Clinic list) · `GET /auth/config · me`, `POST /auth/login` (`username`, `password`, `clinicId`) `· logout · change-password`, `GET /auth/microsoft/login · callback`, `GET /auth/dev-users`, `POST /auth/dev-login` | sign-in (dev list only when `AUTH_MODE=dev`) |
+| `GET /auth/clinics?username=` (sign-in Clinic list for that account) · `GET /auth/config · me`, `POST /auth/login` (`username`, `password`, `clinicId`) `· logout · change-password`, `GET /auth/microsoft/login · callback`, `GET /auth/dev-users`, `POST /auth/dev-login` | sign-in (dev list only when `AUTH_MODE=dev`) |
 | `GET/PUT /admin/auth-settings`, `POST /admin/auth-settings/test-ldap · test-ldap-user · test-microsoft`, `GET/POST/DELETE /admin/auth-settings/mappings`, `GET /admin/auth-settings/lockouts`, `POST …/lockouts/unlock`, `POST/DELETE /admin/users/:id/password` | Sign-in & Directory settings |
 | `GET /requests?q&status&dest&clinic&from&to&kpi&sort&dir&page` | dashboard list + summary cards |
 | `GET /requests/export.csv` | export current list (masked) |

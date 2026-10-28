@@ -10,7 +10,9 @@ import { authRouter } from './routes/auth.js';
 import { requestsRouter } from './routes/requests.js';
 import { referenceRouter, reportsRouter, notificationsRouter } from './routes/misc.js';
 import { adminRouter } from './routes/admin.js';
+import { patientsRouter } from './routes/patients.js';
 import { brandingRouter } from './routes/branding.js';
+import { inboundRouter, jobsRouter } from './routes/integrations.js';
 import { pool } from './db/pool.js';
 
 export function createApp() {
@@ -22,6 +24,9 @@ export function createApp() {
       directives: { 'default-src': ["'self'"], 'img-src': ["'self'", 'data:', 'blob:'], 'frame-src': ["'self'", 'blob:'], 'object-src': ["'self'", 'blob:'] },
     },
   }));
+  // EMR systems post here (own API key, any content type, up to 10 MB) — before the JSON parser and browser checks
+  app.use('/api/integrations/inbound', inboundRouter);
+  app.use('/api/integrations', jobsRouter);
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
 
@@ -37,6 +42,7 @@ export function createApp() {
   app.use('/api/reports', reportsRouter);
   app.use('/api/notifications', notificationsRouter);
   app.use('/api/admin', adminRouter);
+  app.use('/api/patients', patientsRouter);
   app.use('/api', notFoundApi);
 
   // Production: serve the built React app from frontend/dist with SPA fallback.

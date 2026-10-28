@@ -12,14 +12,18 @@ import EmailSettingsPage from './EmailSettingsPage.jsx';
 import AuthSettingsPage from './AuthSettingsPage.jsx';
 import BrandingPage from './BrandingPage.jsx';
 import FormFieldsPage from './FormFieldsPage.jsx';
+import ValidationRulesPage from './ValidationRulesPage.jsx';
+import IntegrationsPage from './IntegrationsPage.jsx';
+import TerminologyPage from './TerminologyPage.jsx';
 import { SIGN_IN_METHODS } from '@domain/auth.js';
+import { t } from '../terms.jsx';
 
-const TABS = [['users', 'User Management', 'users'], ['password-links', 'Password links', 'send'], ['facilities', 'Facilities & Providers', 'building'], ['sla', 'SLA Targets', 'sla'], ['templates', 'Notification Templates', 'mail'], ['email', 'Email (SMTP)', 'send'], ['signin', 'Sign-in & Directory', 'shield'], ['branding', 'Branding', 'palette'], ['form-fields', 'Form Fields', 'list'], ['audit', 'Audit History', 'history']];
+const TABS = [['users', 'User Management', 'users'], ['facilities', 'Facilities & Providers', 'building'], ['sla', 'SLA Targets', 'sla'], ['templates', 'Notification Templates', 'mail'], ['email', 'Email (SMTP)', 'send'], ['signin', 'Sign-in & Directory', 'shield'], ['branding', 'Branding', 'palette'], ['terminology', 'Terminology', 'edit'], ['form-fields', 'Form Fields', 'list'], ['validation', 'Validation Rules', 'check'], ['integrations', 'Integrations', 'send'], ['audit', 'Audit History', 'history']];
 
 export default function AdminPage() {
   return (
     <>
-      <div className="page-head"><div><div className="eyebrow">IT Admin only</div><h1 style={{ marginTop: 4 }}>Admin Settings</h1></div></div>
+      <div className="page-head"><div><div className="eyebrow">IT Admin only</div><h1 style={{ marginTop: 4 }}>{t('nav.adminSettings')}</h1></div></div>
       <div className="admin">
         <nav className="side" aria-label="Admin sections">
           {TABS.map(([k, l, ic]) => <NavLink key={k} to={`/admin/${k}`} className={({ isActive }) => (isActive ? 'on' : '')}><Icon name={ic} />{l}</NavLink>)}
@@ -28,14 +32,16 @@ export default function AdminPage() {
           <Routes>
             <Route index element={<Navigate to="users" replace />} />
             <Route path="users" element={<Users />} />
-            <Route path="password-links" element={<PasswordLinks />} />
             <Route path="facilities" element={<Facilities />} />
             <Route path="sla" element={<Sla />} />
             <Route path="templates" element={<Templates />} />
             <Route path="email" element={<EmailSettingsPage />} />
             <Route path="signin" element={<AuthSettingsPage />} />
             <Route path="branding" element={<BrandingPage />} />
+            <Route path="terminology" element={<TerminologyPage />} />
             <Route path="form-fields" element={<FormFieldsPage />} />
+            <Route path="validation" element={<ValidationRulesPage />} />
+            <Route path="integrations" element={<IntegrationsPage />} />
             <Route path="audit" element={<Audit />} />
           </Routes>
         </div>
@@ -70,7 +76,7 @@ function Users() {
             <td>{u.status === 'Active' ? <span className="pill t-good">Active</span> : <span className="pill t-muted">Inactive</span>}</td>
             <td className="num">{fmtTS(u.lastSignInAt)}{u.lastSignInMethod && <span className="sub">{SIGN_IN_METHODS[u.lastSignInMethod]}</span>}</td>
             <td>{u.hasLocalPassword ? <span className={`pill ${u.mustChangePassword ? 't-pending' : 't-good'}`}>{u.mustChangePassword ? 'Temporary' : 'Set'}</span> : <span className="muted">—</span>}</td>
-            <td><div className="row" style={{ gap: 12 }}>
+            <td><div className="row" style={{ gap: 12, flexWrap: 'nowrap' }}>
               <button className="textlink" onClick={() => setEdit(u)}>Edit</button>
               <button className="textlink" onClick={() => setPw(u)}>Password</button>
               {u.id !== me.id && <button className={`textlink ${u.status === 'Active' ? 'danger' : ''}`} onClick={async () => {
@@ -88,7 +94,7 @@ function Users() {
 }
 
 function UserForm({ user, clinics, onClose, onSaved }) {
-  const [f, setF] = useState({ name: user.name || '', email: user.email || '', password: '', roles: user.roles || [ROLES.CLINIC_STAFF], clinicIds: user.clinics?.map((c) => c.id) || [] });
+  const [f, setF] = useState({ name: user.name || '', email: user.email || '', roles: user.roles || [ROLES.CLINIC_STAFF], clinicIds: user.clinics?.map((c) => c.id) || [] });
   const [err, setErr] = useState({});
   const [busy, setBusy] = useState(false);
   const toggle = (k, v) => setF((x) => ({ ...x, [k]: x[k].includes(v) ? x[k].filter((y) => y !== v) : [...x[k], v] }));
@@ -104,12 +110,6 @@ function UserForm({ user, clinics, onClose, onSaved }) {
       footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy} onClick={save}>{user.id ? 'Save changes' : 'Add user'}</button></>}>
       <div className="f"><label htmlFor="uf-name">Full name *</label><input id="uf-name" className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /><FieldError msg={err.name} /></div>
       <div className="f"><label htmlFor="uf-email">Work email *</label><input id="uf-email" type="email" className="input" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /><FieldError msg={err.email} /></div>
-      <div className="f">
-        <label htmlFor="uf-password">{user.id ? 'New password' : 'Password *'}</label>
-        <input id="uf-password" type="password" className="input" autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
-        {user.id ? <p className="small muted">Leave blank to keep the current password.</p> : null}
-        <FieldError msg={err.password} />
-      </div>
       <div className="f"><span className="lbl">Roles *</span>
         <div className="stack" style={{ gap: 6 }}>{Object.values(ROLES).map((r) => <label key={r} className="check-row"><input type="checkbox" checked={f.roles.includes(r)} onChange={() => toggle('roles', r)} />{ROLE_LABELS[r]}</label>)}</div>
         <FieldError msg={err.roles} /></div>
@@ -119,76 +119,8 @@ function UserForm({ user, clinics, onClose, onSaved }) {
           <FieldError msg={err.clinicIds} /></div>
       )}
       <FieldError msg={err.general} />
+      {!user.id && <p className="small muted">Sign-in uses single sign-on, so no password is set here.</p>}
     </Modal>
-  );
-}
-
-function PasswordLinks() {
-  const { toast } = useUi();
-  const resetUsers = useLoad(() => api.get('/admin/password-links/users'), []);
-  const clinics = useLoad(() => api.get('/reference/facilities?type=DiaverumClinic&all=1'), []);
-  const [mode, setMode] = useState('reset');
-  const [userId, setUserId] = useState('');
-  const [f, setF] = useState({ name: '', email: '', roles: [ROLES.CLINIC_STAFF], clinicIds: [] });
-  const [err, setErr] = useState({});
-  const [busy, setBusy] = useState(false);
-  const [sent, setSent] = useState('');
-  const toggle = (k, v) => setF((x) => ({ ...x, [k]: x[k].includes(v) ? x[k].filter((y) => y !== v) : [...x[k], v] }));
-  const send = async (e) => {
-    e.preventDefault();
-    setBusy(true);
-    setErr({});
-    setSent('');
-    try {
-      const res = mode === 'reset'
-        ? await api.post('/admin/password-links/reset', { userId })
-        : await api.post('/admin/password-links/invite', f);
-      setSent(res.email);
-      toast(`Email sent to ${res.email}`);
-      if (mode === 'invite') setF({ name: '', email: '', roles: [ROLES.CLINIC_STAFF], clinicIds: [] });
-    } catch (ex) {
-      setErr(ex.fields && Object.keys(ex.fields).length ? ex.fields : { general: ex.message });
-    } finally { setBusy(false); }
-  };
-  return (
-    <>
-      <Head title="Password links" help="The email contains a link. The person chooses their own password. The link works once and expires in 24 hours." />
-      {sent && <div className="banner"><Icon name="checkc" /><span>Email sent to {sent}.</span></div>}
-      <form className="card" style={{ padding: 18, maxWidth: 560 }} onSubmit={send}>
-        <div className="f">
-          <span className="lbl">Who is this for?</span>
-          <label className="check-row"><input type="radio" name="plink" checked={mode === 'reset'} onChange={() => { setMode('reset'); setErr({}); setSent(''); }} /> Already has a password</label>
-          <label className="check-row"><input type="radio" name="plink" checked={mode === 'invite'} onChange={() => { setMode('invite'); setErr({}); setSent(''); }} /> New user</label>
-        </div>
-        {mode === 'reset' ? (
-          <div className="f">
-            <label htmlFor="pl-user">User *</label>
-            <select id="pl-user" className="select" required value={userId} onChange={(e) => setUserId(e.target.value)}>
-              <option value="">Choose a user</option>
-              {(resetUsers.data || []).map((u) => <option key={u.id} value={u.id}>{u.name} — {u.email}</option>)}
-            </select>
-            <p className="small muted">Their current password keeps working until they open the link and choose a new one.</p>
-            <FieldError msg={err.general} />
-          </div>
-        ) : (
-          <>
-            <div className="f"><label htmlFor="pl-name">Full name *</label><input id="pl-name" className="input" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /><FieldError msg={err.name} /></div>
-            <div className="f"><label htmlFor="pl-email">Work email *</label><input id="pl-email" type="email" className="input" required value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /><FieldError msg={err.email} /></div>
-            <div className="f"><span className="lbl">Roles *</span>
-              <div className="stack" style={{ gap: 6 }}>{Object.values(ROLES).map((r) => <label key={r} className="check-row"><input type="checkbox" checked={f.roles.includes(r)} onChange={() => toggle('roles', r)} />{ROLE_LABELS[r]}</label>)}</div>
-              <FieldError msg={err.roles} /></div>
-            {f.roles.includes(ROLES.CLINIC_STAFF) && (
-              <div className="f"><span className="lbl">Clinic(s) *</span>
-                <div className="stack" style={{ gap: 6 }}>{(clinics.data || []).map((c) => <label key={c.id} className="check-row"><input type="checkbox" checked={f.clinicIds.includes(c.id)} onChange={() => toggle('clinicIds', c.id)} />{c.name}{!c.active && <span className="muted"> (inactive)</span>}</label>)}</div>
-                <FieldError msg={err.clinicIds} /></div>
-            )}
-            <p className="small muted">They cannot sign in until they open the link and choose a password.</p>
-            <FieldError msg={err.general} />
-          </>
-        )}
-        <button className="btn primary" type="submit" disabled={busy || (mode === 'reset' && !userId)}>{busy ? 'Sending…' : 'Email the link'}</button>
-      </form>
-    </>
   );
 }
 

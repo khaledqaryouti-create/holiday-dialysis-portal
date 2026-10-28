@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Icon } from './Icon.jsx';
 import { STATUS_META, DEST_LABELS } from '@domain/constants.js';
+import { statusLabel, statusShort, destLabel } from '../terms.jsx';
 
 // ---------------------------------------------------------------- toasts + confirm dialog
 const UiCtx = createContext(null);
@@ -56,9 +57,9 @@ export function Modal({ title, children, footer, onClose, wide = false }) {
 // ---------------------------------------------------------------- small display pieces
 export function StatusPill({ status, short = false }) {
   const m = STATUS_META[status] || { label: status, tone: 'muted' };
-  return <span className={`pill t-${m.tone}`} title={m.label}>{short ? m.short : m.label}</span>;
+  return <span className={`pill t-${m.tone}`} title={statusLabel(status)}>{short ? statusShort(status) : statusLabel(status)}</span>;
 }
-export const DestChip = ({ type }) => <span className="chip">{DEST_LABELS[type] || '—'}</span>;
+export const DestChip = ({ type }) => <span className="chip">{destLabel(type)}</span>;
 
 export function Loading({ label = 'Loading…' }) {
   return <div className="loading"><span className="spinner" /> {label}</div>;

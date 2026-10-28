@@ -1,13 +1,20 @@
 // Sign-in screen: shows whichever methods IT switched on in Admin Settings → Sign-in & Directory
 // (Microsoft, user name + password for directory and/or local accounts).
-import { useEffect, useState } from 'react';
-import { api } from '../api.js';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { api, qs } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { Icon } from '../components/Icon.jsx';
 import { ErrorBox, FieldError } from '../components/ui.jsx';
 import { hasContact, telHref } from '@domain/branding.js';
 import { useBranding } from '../branding.jsx';
 import LoginVisual from '../components/LoginVisual.jsx';
+
+/** The value Chrome actually put in the field, not only the value React last rendered. */
+function fieldValue(el) {
+  if (!el) return '';
+  const getter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.get;
+  return String(getter ? getter.call(el) : el.value ?? '');
+}
 
 function MicrosoftLogo() {
   return (
@@ -27,40 +34,189 @@ export default function LoginPage() {
     return m ? { message: m } : null;
   });
   const [busy, setBusy] = useState(null);
-  const [form, setForm] = useState(() => {
-    let clinicId = '';
-    try { clinicId = localStorage.getItem('hdp.lastClinic') || ''; } catch { /* storage blocked */ }
-    return { username: '', password: '', clinicId };
-  });
+  const [form, setForm] = useState({ username: '', password: '', clinicId: '' });
   const [clinics, setClinics] = useState([]);
+  const [clinicStatus, setClinicStatus] = useState('idle'); // idle | loading | ready
   const [fieldErr, setFieldErr] = useState({});
   const [showPw, setShowPw] = useState(false);
+  const clinicTimer = useRef(null);
+  const clinicSeq = useRef(0);
+  const clinicsFor = useRef(''); // user name the current list belongs to
+  const inflightFor = useRef('');
+  const pendingFor = useRef('');
+  const userRef = useRef(null);
+  const [userNode, setUserNode] = useState(null);
+  const setUserEl = useCallback((node) => {
+    userRef.current = node;
+    setUserNode((prev) => (prev === node ? prev : node));
+  }, []);
+  const clinicsNow = useRef([]);
+  const clinicIdNow = useRef('');
 
   useEffect(() => {
     if (window.location.search.includes('loginError')) window.history.replaceState(null, '', window.location.pathname);
   }, []);
+  useEffect(() => () => clearTimeout(clinicTimer.current), []);
   const showPasswordForm = options.password || options.dev;
+
+  function rememberedClinic() {
+    try { return localStorage.getItem('hdp.lastClinic') || ''; } catch { return ''; }
+  }
+
+  function pickClinic(list, currentId) {
+    if (list.length === 1) return list[0].id;
+    if (currentId && list.some((c) => c.id === currentId)) return currentId;
+    const remembered = rememberedClinic();
+    return list.some((c) => c.id === remembered) ? remembered : '';
+  }
+
+  const usernameKey = (raw) => String(raw ?? '').trim().toLowerCase();
+  // A finished address (paste or the last character of an email) can be looked up at once.
+  const isCompleteEmail = (key) => { const at = key.indexOf('@'); return at > 0 && key.slice(at + 1).includes('.'); };
+
+  function fetchClinics(name, key = usernameKey(name)) {
+    if (!key || clinicsFor.current === key || inflightFor.current === key) return;
+    const seq = clinicSeq.current;
+    inflightFor.current = key;
+    pendingFor.current = '';
+    setClinicStatus('loading');
+    api.get(`/auth/clinics${qs({ username: name })}`).then((r) => {
+      if (seq !== clinicSeq.current) return;
+      inflightFor.current = '';
+      clinicsFor.current = key;
+      const list = Array.isArray(r.clinics) ? r.clinics : [];
+      setClinics(list);
+      setClinicStatus('ready');
+      setForm((f) => {
+        if (usernameKey(f.username) !== key) return f;
+        const clinicId = pickClinic(list, f.clinicId);
+        return clinicId === f.clinicId ? f : { ...f, clinicId };
+      });
+    }).catch(() => {
+      if (seq !== clinicSeq.current) return;
+      if (inflightFor.current === key) inflightFor.current = '';
+      setClinics([]);
+      setClinicStatus('idle');
+    });
+  }
+
+  // A new user name starts a load. The same user name keeps the list and any request already running.
+  function noteUsername(raw) {
+    const key = usernameKey(raw);
+    if (!key) {
+      clearTimeout(clinicTimer.current);
+      clinicSeq.current += 1;
+      inflightFor.current = '';
+      pendingFor.current = '';
+      clinicsFor.current = '';
+      setClinicStatus('idle');
+      setClinics([]);
+      setForm((f) => (f.username === raw && !f.clinicId ? f : { ...f, username: raw, clinicId: '' }));
+      return;
+    }
+    const same = clinicsFor.current === key || inflightFor.current === key || pendingFor.current === key;
+    setForm((f) => {
+      const clinicId = same ? f.clinicId : '';
+      if (f.username === raw && f.clinicId === clinicId) return f;
+      return { ...f, username: raw, clinicId };
+    });
+    if (same) return;
+    setFieldErr((x) => (x.clinic ? { ...x, clinic: undefined } : x));
+    clearTimeout(clinicTimer.current);
+    clinicSeq.current += 1;
+    inflightFor.current = '';
+    clinicsFor.current = '';
+    pendingFor.current = key;
+    setClinics([]);
+    setClinicStatus('loading');
+    const start = () => {
+      if (pendingFor.current === key) pendingFor.current = '';
+      fetchClinics(String(raw).trim(), key);
+    };
+    if (isCompleteEmail(key)) start();
+    else clinicTimer.current = setTimeout(start, 400);
+  }
+
+  function ensureClinics(raw) {
+    const name = String(raw ?? '').trim();
+    const key = usernameKey(name);
+    if (!key || clinicsFor.current === key || inflightFor.current === key) return;
+    clearTimeout(clinicTimer.current);
+    pendingFor.current = '';
+    fetchClinics(name, key);
+  }
+
+  const usernameNow = useRef('');
+  usernameNow.current = form.username;
+  clinicsNow.current = clinics;
+  clinicIdNow.current = form.clinicId;
+  const noteNow = useRef(noteUsername);
+  noteNow.current = noteUsername;
+
+  // Chrome fills the user name without a React change event. Watch the field itself for a few seconds.
   useEffect(() => {
-    if (!showPasswordForm) return;
-    api.get('/auth/clinics').then((r) => {
-      setClinics(r.clinics);
-      setForm((f) => (f.clinicId && !r.clinics.some((c) => c.id === f.clinicId) ? { ...f, clinicId: '' } : f));
-    }).catch(() => {});
-  }, [showPasswordForm]);
+    const el = userNode;
+    if (!showPasswordForm || !el) return undefined;
+    const read = () => {
+      const value = fieldValue(el);
+      if (value && usernameKey(value) !== usernameKey(usernameNow.current)) noteNow.current(value);
+    };
+    el.addEventListener('input', read);
+    el.addEventListener('change', read);
+    const started = performance.now();
+    let frame = 0;
+    const tick = () => {
+      read();
+      if (performance.now() - started < 4000) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(frame);
+      el.removeEventListener('input', read);
+      el.removeEventListener('change', read);
+    };
+  }, [showPasswordForm, userNode]);
+
+  function clinicLabel(c) {
+    return `${c.name}${c.city && !c.name.includes(c.city) ? ` (${c.city})` : ''}`;
+  }
+
+  function chooseClinic(id) {
+    setForm((f) => ({ ...f, clinicId: id }));
+    setFieldErr((x) => ({ ...x, clinic: undefined }));
+  }
 
   const nothing = !options.microsoft && !options.password && !options.dev;
 
   async function submit(e) {
     e.preventDefault();
+    const username = (fieldValue(userRef.current).trim() || form.username.trim());
+    const password = fieldValue(document.getElementById('li-pw')) || form.password;
     const fe = {};
-    if (!form.username.trim()) fe.username = 'Enter your user name.';
-    if (!form.password) fe.password = 'Enter your password.';
-    setFieldErr(fe);
-    if (Object.keys(fe).length) return;
-    setBusy('pw'); setError(null);
+    if (!username) fe.username = 'Enter your user name.';
+    if (!password) fe.password = 'Enter your password.';
+    if (fe.username || fe.password) { setFieldErr(fe); return; }
+    if (password !== form.password) setForm((f) => ({ ...f, password }));
+
+    const key = usernameKey(username);
+    if (clinicsFor.current !== key) {
+      if (usernameKey(form.username) !== key) noteUsername(username);
+      ensureClinics(username);
+      setError(null);
+      return; // the clinic rows appear when the lookup finishes; sign-in is not sent yet
+    }
+    const list = clinicsNow.current;
+    const chosen = list.some((c) => c.id === clinicIdNow.current) ? clinicIdNow.current : '';
+    if (list.length > 1 && !chosen) {
+      setFieldErr({ clinic: 'Choose the clinic you are working at today.' });
+      setError(null);
+      return;
+    }
+    const clinicId = list.length === 1 ? list[0].id : chosen;
+    setBusy('pw'); setError(null); setFieldErr({});
     try {
-      await passwordLogin(form.username.trim(), form.password, form.clinicId);
-      try { if (form.clinicId) localStorage.setItem('hdp.lastClinic', form.clinicId); } catch { /* storage blocked */ }
+      await passwordLogin(username, password, clinicId);
+      try { if (clinicId) localStorage.setItem('hdp.lastClinic', clinicId); } catch { /* storage blocked */ }
     } catch (err) {
       setBusy(null);
       if (err.fields?.clinic) { setFieldErr({ clinic: err.fields.clinic }); return; } // password was right; only the clinic needs fixing
@@ -91,11 +247,16 @@ export default function LoginPage() {
           {options.microsoft && showPasswordForm && <div className="lf-or"><span>or use your user name</span></div>}
 
           {showPasswordForm && (
-            <form className="lf-form" onSubmit={submit} noValidate>
+            <form className="lf-form" onSubmit={submit} noValidate
+              onFocus={() => { const value = document.getElementById('li-user')?.value ?? ''; if (value && usernameKey(value) !== usernameKey(form.username)) noteUsername(value); }}>
               <div className="f"><label htmlFor="li-user">User name</label>
                 <div className="input-ic"><Icon name="user" />
-                  <input id="li-user" className={`input ${fieldErr.username ? 'err' : ''}`} autoComplete="username" autoCapitalize="none" spellCheck={false}
-                    value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} placeholder={options.usernameHint} /></div>
+                  <input id="li-user" ref={setUserEl} className={`input ${fieldErr.username ? 'err' : ''}`} autoComplete="username" autoCapitalize="none" spellCheck={false}
+                    value={form.username}
+                    onChange={(e) => noteUsername(e.target.value)}
+                    onBlur={(e) => { if (e.target.value !== form.username) noteUsername(e.target.value); ensureClinics(e.target.value); }}
+                    onAnimationStart={(e) => { if (e.animationName === 'hdp-autofill') noteUsername(e.target.value); }}
+                    placeholder={options.usernameHint} /></div>
                 <FieldError msg={fieldErr.username} /></div>
               <div className="f"><label htmlFor="li-pw">Password</label>
                 <div className="input-ic"><Icon name="lock" />
@@ -103,15 +264,22 @@ export default function LoginPage() {
                     value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
                   <button type="button" className="reveal" onClick={() => setShowPw(!showPw)} aria-label={showPw ? 'Hide password' : 'Show password'} aria-pressed={showPw}><Icon name={showPw ? 'eyeoff' : 'eye'} /></button></div>
                 <FieldError msg={fieldErr.password} /></div>
-              <div className="f"><label htmlFor="li-clinic">Clinic</label>
+              <div className="f">
+                <label htmlFor="li-clinic">Clinic</label>
                 <div className="input-ic"><Icon name="building" />
-                  <select id="li-clinic" className={`input ${fieldErr.clinic ? 'err' : ''}`} value={form.clinicId}
-                    onChange={(e) => { setForm({ ...form, clinicId: e.target.value }); setFieldErr((x) => ({ ...x, clinic: undefined })); }}
-                    aria-describedby="li-clinic-help">
-                    <option value="">Choose a clinic</option>
-                    {clinics.map((c) => <option key={c.id} value={c.id}>{c.name}{c.city && !c.name.includes(c.city) ? ` (${c.city})` : ''}</option>)}
+                  <select id="li-clinic" className={`input ${fieldErr.clinic ? 'err' : ''}`}
+                    value={form.clinicId}
+                    onChange={(e) => chooseClinic(e.target.value)}
+                    disabled={clinicStatus !== 'ready' || !clinics.length}
+                    aria-describedby="li-clinic-help" aria-invalid={fieldErr.clinic ? true : undefined}>
+                    <option value="">
+                      {!form.username.trim() ? 'Enter your user name first'
+                        : clinicStatus === 'loading' ? 'Loading clinics…'
+                        : clinics.length ? 'Choose a clinic' : 'No clinic to choose'}
+                    </option>
+                    {clinics.map((c) => <option key={c.id} value={c.id}>{clinicLabel(c)}</option>)}
                   </select></div>
-                <span id="li-clinic-help" className="lf-help">The clinic you are working at. Coordination and IT staff can leave this empty.</span>
+                <span id="li-clinic-help" className="lf-help">Only clinics assigned to this user name are listed. Coordination and IT staff can leave this empty.</span>
                 <FieldError msg={fieldErr.clinic} /></div>
               <button className="btn block lf-submit" type="submit" disabled={!!busy}>{busy === 'pw' ? <span className="spinner" /> : null}Sign in</button>
             </form>

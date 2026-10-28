@@ -31,14 +31,14 @@ const ACCOUNTS = {
 /** Minimal client that keeps the session cookie per user. */
 async function as(n) {
   const [email, clinicName] = ACCOUNTS[n];
-  const listed = await fetch(`${base}/auth/clinics`);
+  const listed = await fetch(`${base}/auth/clinics?username=${encodeURIComponent(email)}`);
   const clinics = (await listed.json()).clinics;
   const clinic = clinics.find((c) => c.name === clinicName);
-  assert.ok(clinic, `clinic ${clinicName}`);
+  if (clinics.length) assert.ok(clinic, `clinic ${clinicName}`);
   const res = await fetch(`${base}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'hdp' },
-    body: JSON.stringify({ email, password: DEV_SAMPLE_PASSWORD, clinicId: clinic.id }),
+    body: JSON.stringify({ email, password: DEV_SAMPLE_PASSWORD, clinicId: clinic?.id || '' }),
   });
   assert.equal(res.status, 200, 'login');
   const cookie = res.headers.get('set-cookie').split(';')[0];
@@ -58,6 +58,18 @@ function pdfForm(docType, name = `${docType}.pdf`) {
   f.append('file', new Blob([Buffer.from('%PDF-1.4 test')], { type: 'application/pdf' }), name);
   return f;
 }
+
+test('sign-in clinic list is limited to the user name', async () => {
+  const laila = await fetch(`${base}/auth/clinics?username=${encodeURIComponent('laila.alharbi@clinics.example')}`);
+  assert.equal(laila.status, 200);
+  assert.deepEqual((await laila.json()).clinics.map((c) => c.name), ['Riyadh North Clinic']);
+  const unknown = await fetch(`${base}/auth/clinics?username=${encodeURIComponent('nobody@clinics.example')}`);
+  assert.equal(unknown.status, 200);
+  assert.deepEqual((await unknown.json()).clinics, []);
+  const empty = await fetch(`${base}/auth/clinics`);
+  assert.equal(empty.status, 200);
+  assert.deepEqual((await empty.json()).clinics, []);
+});
 
 test('state-changing calls without the CSRF header are refused', async () => {
   const r = await fetch(`${base}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });

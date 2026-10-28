@@ -52,6 +52,8 @@ export const config = Object.freeze({
   },
 
   reminderIntervalMinutes: Number(env.REMINDER_INTERVAL_MINUTES || 0),
+  // Integration messages (send / retry) and scheduled patient fetches, run inside the server. 0 = off (then use npm run jobs:run).
+  jobs: { integrationSeconds: Number(env.JOBS_INTERVAL_SECONDS ?? env.INTEGRATION_INTERVAL_SECONDS ?? 60) },
 });
 
 /** Fail fast with a readable message instead of a stack trace deep in a request. */
@@ -62,9 +64,13 @@ export function assertConfig({ needServer = true } = {}) {
   if (needServer) {
     if (config.auth.sessionSecret.length < 32) problems.push('SESSION_SECRET must be at least 32 characters (use `openssl rand -base64 48`).');
     if (!['dev', 'standard'].includes(config.auth.mode)) problems.push('AUTH_MODE must be "dev" or "standard".');
+    if (config.isProd && config.auth.mode === 'dev') problems.push('AUTH_MODE=dev is not allowed when NODE_ENV=production.');
     if (config.storage.driver === 'supabase' && (!config.storage.supabaseUrl || !config.storage.supabaseServiceRoleKey)) {
       problems.push('STORAGE_DRIVER=supabase needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.');
     }
+  }
+  if (needServer && process.env.VERCEL && config.storage.driver !== 'supabase') {
+    console.warn('[config] Running on Vercel with STORAGE_DRIVER=local: the disk is read-only, so document uploads will fail. Set STORAGE_DRIVER=supabase, SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.');
   }
   if (problems.length) {
     const msg = `Configuration problems:\n - ${problems.join('\n - ')}\nSee backend/.env.example.`;

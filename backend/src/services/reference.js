@@ -12,10 +12,10 @@ export async function searchPatients(user, q) {
   const { rows } = await query(
     `SELECT p.id, p.full_name AS name, p.mrn, p.identifier_type, p.national_identifier_last2, p.modality, f.facility_name AS home_clinic
        FROM patient_reference p JOIN facility f ON f.id = p.home_facility_id
-      WHERE p.home_facility_id = ANY($1::uuid[])
+      WHERE p.home_facility_id = ANY($1::uuid[]) AND p.is_active
         AND (p.full_name ILIKE $2 OR p.mrn LIKE $3)
-      ORDER BY p.full_name LIMIT 10`,
-    [user.clinicIds, `%${term}%`, `${term.replace(/\D/g, '') || '~'}%`],
+      ORDER BY (p.mrn = $4) DESC, (p.mrn LIKE $3) DESC, p.full_name LIMIT 10`,
+    [user.clinicIds, `%${term}%`, `${term.replace(/\D/g, '') || '~'}%`, term.replace(/\D/g, '') || '~'],
   );
   return rows.map((r) => ({
     id: r.id, name: r.name, mrn: r.mrn, identifierType: r.identifier_type,
