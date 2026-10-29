@@ -8,7 +8,7 @@ export function eventJson(s) {
     request: {
       number: s.requestNumber, status: s.status, submittedAt: s.submittedAt || null,
       destination: { type: s.destination.type, city: s.destination.city, countryCode: s.destination.countryCode, countryName: s.destination.countryName, facility: s.destination.facility },
-      travel: s.travel, sessionsRequired: s.sessionsRequired, confirmed: s.confirmed || null, note: s.note || null, requestedBy: s.requestedBy || null,
+      travel: s.travel, sessionsRequired: s.sessionsRequired, treatmentDays: (s.sessionPlan || []).map((x) => ({ date: x.date, shift: x.shift })), confirmed: s.confirmed || null, note: s.note || null, requestedBy: s.requestedBy || null,
     },
     patient: {
       mrn: s.patient.mrn, name: s.patient.name, identifierType: s.patient.identifier ? s.patient.identifierType : null, identifier: s.patient.identifier || null,

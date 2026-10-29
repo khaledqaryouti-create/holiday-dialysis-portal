@@ -81,7 +81,8 @@ export function sampleSnapshot(event = 'Confirmed') {
     patient: { name: 'TEST Patient Sample', mrn: '900001', identifierType: 'NationalId', identifier: '1000000001', dateOfBirth: '1965-04-12', mobile: '+966500000001', relativeMobile: null, relativeName: null, modality: 'Haemodialysis' },
     requestingClinic: { code: 'RUH-N', name: 'Riyadh North Clinic' },
     destination: { type: 'Internal', city: 'Jeddah', countryCode: 'SA', countryName: 'Saudi Arabia', facility: { code: 'JED-C', name: 'Jeddah Central Clinic' } },
-    travel: { start: '2026-12-01', end: '2026-12-14' }, sessionsRequired: 6,
+    travel: { start: '2026-12-01', end: '2026-12-14' }, sessionsRequired: 3,
+    sessionPlan: [{ date: '2026-12-01', shift: 'Morning' }, { date: '2026-12-03', shift: 'Morning' }, { date: '2026-12-06', shift: 'Afternoon' }],
     confirmed: event === 'Confirmed' || event === 'Completed' ? { start: '2026-12-02', end: '2026-12-13' } : null,
     note: null, requestedBy: 'Sample Staff',
   };

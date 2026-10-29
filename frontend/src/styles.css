@@ -782,3 +782,25 @@ a.textlink{text-decoration:none}
 .tm-act{padding-top:9px}
 .tm-savebar{justify-content:space-between;flex-wrap:wrap;gap:10px;position:sticky;bottom:12px;z-index:5;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 16px;box-shadow:0 4px 18px rgb(0 0 0/.08)}
 @media (max-width:640px){.tm-head{display:none}.tm-row{grid-template-columns:1fr}.tm-act{padding-top:0}}
+
+/* ---------- New Request: Treatment days & shifts */
+.tdp{display:grid;grid-template-columns:auto minmax(0,1fr);gap:22px;align-items:start;border:1px solid var(--line);border-radius:var(--r);padding:14px;background:var(--surface)}
+.tdp.invalid{border-color:var(--bad-fg)}
+.tdp-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.tdp-grid{grid-template-columns:repeat(7,40px)}
+.tdp-day{height:38px}
+.tdp-day.in:not(.sel){color:var(--fg);font-weight:600}
+.tdp-day.sel{background:var(--brand-2);color:#fff;border-radius:8px}
+.tdp-quick{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:10px;max-width:280px}
+.tdp-list{min-width:0}
+.tdp-days{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:10px;max-height:420px;overflow:auto}
+.tdp-days li{display:flex;flex-direction:column;gap:4px}
+.tdp-days label{font-size:.84rem;color:var(--fg-2)}
+.tdp-days .select{max-width:280px}
+.tdp-bulk{width:auto;min-width:150px;padding-top:5px;padding-bottom:5px}
+.tdp-x{border:0;background:none;color:var(--fg-3);cursor:pointer;padding:6px;border-radius:6px;display:inline-flex}
+.tdp-x:hover{background:var(--surface-2);color:var(--bad-fg)}
+.tdp-empty{display:flex;gap:8px;align-items:center;color:var(--fg-3);font-size:.9rem;border:1px dashed var(--line-2);border-radius:var(--r);padding:14px}
+.plan-list{margin:0;padding-left:18px}
+.plan-list li{margin:2px 0}
+@media (max-width:760px){.tdp{grid-template-columns:1fr}.tdp-grid{grid-template-columns:repeat(7,minmax(34px,1fr))}}

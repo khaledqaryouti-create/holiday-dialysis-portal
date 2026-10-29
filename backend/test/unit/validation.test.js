@@ -25,12 +25,13 @@ test('patient step: manual entry needs name, numeric MRN, valid ID; list pick ne
 });
 
 test('destination step: dates and sessions (§6.2)', () => {
-  const ok = { destinationType: 'Internal', destinationCity: 'Jeddah', receivingFacilityId: 'f', travelStart: '2026-10-20', travelEnd: '2026-10-27', sessionsRequired: 3 };
+  const plan = [{ date: '2026-10-20', shift: 'Morning' }, { date: '2026-10-22', shift: 'Afternoon' }, { date: '2026-10-24', shift: 'Morning' }];
+  const ok = { destinationType: 'Internal', destinationCity: 'Jeddah', receivingFacilityId: 'f', travelStart: '2026-10-20', travelEnd: '2026-10-27', sessionPlan: plan };
   assert.deepEqual(validateDestinationStep(ok, TODAY), {});
   assert.match(validateDestinationStep({ ...ok, travelStart: '2026-10-01' }, TODAY).travelStart, /past/);
   assert.match(validateDestinationStep({ ...ok, travelEnd: '2026-10-20' }, TODAY).travelEnd, /after the start/);
-  assert.match(validateDestinationStep({ ...ok, sessionsRequired: '2.5' }, TODAY).sessionsRequired, /whole number/);
-  assert.match(validateDestinationStep({ ...ok, sessionsRequired: 0 }, TODAY).sessionsRequired, /whole number/);
+  assert.match(validateDestinationStep({ ...ok, sessionPlan: [] }, TODAY).sessionPlan, /treatment days/);
+  assert.match(validateDestinationStep({ ...ok, sessionPlan: [{ date: '2026-10-28', shift: 'Morning' }] }, TODAY).sessionPlan, /outside the travel dates/);
   const intl = { ...ok, destinationType: 'International', receivingFacilityId: null, destinationCountry: 'TR', freeTextFacility: 'Some unit' };
   assert.deepEqual(validateDestinationStep(intl, TODAY), {});
   assert.ok(validateDestinationStep({ ...intl, freeTextFacility: '' }, TODAY).receivingFacilityId);
@@ -43,7 +44,7 @@ test('attachments: MOH, medical report and ID copy required; MOD only when it ap
 });
 
 test('validateForSubmit reports the first failing step', () => {
-  const d = { patient: { id: 'p' }, patientMobile: '0501234567', destinationType: 'Internal', destinationCity: 'Jeddah', receivingFacilityId: 'f', travelStart: '2026-10-20', travelEnd: '2026-10-27', sessionsRequired: 3 };
+  const d = { patient: { id: 'p' }, patientMobile: '0501234567', destinationType: 'Internal', destinationCity: 'Jeddah', receivingFacilityId: 'f', travelStart: '2026-10-20', travelEnd: '2026-10-27', sessionPlan: [{ date: '2026-10-21', shift: 'Morning' }] };
   assert.equal(validateForSubmit(d, ['MOHApproval', 'MedicalReport', 'IDCopy'], TODAY), null);
   assert.equal(validateForSubmit(d, [], TODAY).step, 3);
   assert.equal(validateForSubmit({ ...d, travelEnd: '' }, [], TODAY).step, 2);

@@ -1,6 +1,8 @@
 // HL7 v2.x (ER7 "pipe" format): build SIU / MDM / QBP / ACK messages and read ADT / RSP / ACK.
 // Pure functions — no I/O. `s` = portal request snapshot (see engine.snapshot), `cfg` = connection config.
 
+import { planText } from '../sessionPlan.js';
+
 const CR = '\r';
 /** Escape HL7 delimiters inside a value (spec 2.7). */
 export const esc = (v) => String(v ?? '').replace(/\\/g, '\\E\\').replace(/\|/g, '\\F\\').replace(/\^/g, '\\S\\').replace(/~/g, '\\R\\').replace(/&/g, '\\T\\')
@@ -61,6 +63,7 @@ export function buildSiu(s, cfg, controlId, at = new Date()) {
   let n = 1;
   const notes = [`Destination: ${[s.destination.city, s.destination.countryName].filter(Boolean).join(', ')} (${s.destination.type})`,
     `Requested travel: ${s.travel.start} to ${s.travel.end}; sessions: ${s.sessionsRequired ?? '-'}`];
+  if (s.sessionPlan?.length) notes.push(`Treatment days: ${planText(s.sessionPlan)}`);
   if (s.confirmed) notes.push(`Confirmed sessions: ${s.confirmed.start} to ${s.confirmed.end}`);
   if (s.note) notes.push(s.note);
   for (const t of notes) lines.push(seg('NTE', String(n++), 'P', esc(t)));

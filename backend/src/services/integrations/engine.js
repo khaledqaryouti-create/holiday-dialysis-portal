@@ -112,7 +112,7 @@ export async function queueForAction(ctx, action) {
 export async function snapshot(requestId, event, cfg) {
   const { rows } = await query(
     `SELECT r.id, r.request_number, r.current_status, r.destination_type, r.destination_city, r.destination_country, co.country_name,
-            r.travel_start_date, r.travel_end_date, r.sessions_required, r.submitted_at, r.free_text_facility, r.relative_name,
+            r.travel_start_date, r.travel_end_date, r.sessions_required, r.session_plan, r.submitted_at, r.free_text_facility, r.relative_name,
             p.full_name, p.mrn, p.identifier_type, p.date_of_birth, p.modality,
             CASE WHEN $3 THEN pgp_sym_decrypt(p.national_identifier_enc, $2) END AS identifier,
             CASE WHEN $4 AND r.patient_mobile_enc IS NOT NULL THEN pgp_sym_decrypt(r.patient_mobile_enc, $2) END AS patient_mobile,
@@ -145,6 +145,7 @@ export async function snapshot(requestId, event, cfg) {
     requestingClinic: { code: x.req_code, name: x.req_name },
     destination: { type: x.destination_type, city: x.destination_city, countryCode: x.destination_country?.trim() || null, countryName: x.country_name, facility: { code: x.dest_code || null, name: x.dest_name || '' } },
     travel: { start: d(x.travel_start_date), end: d(x.travel_end_date) }, sessionsRequired: x.sessions_required,
+    sessionPlan: (typeof x.session_plan === 'string' ? JSON.parse(x.session_plan) : x.session_plan) || [],
     confirmed: conf?.start ? { start: d(conf.start), end: d(conf.end) } : null,
     note: x.last_note || null, requestedBy: x.requested_by,
   };

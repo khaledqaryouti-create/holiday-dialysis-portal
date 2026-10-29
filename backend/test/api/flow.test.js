@@ -7,8 +7,8 @@ import { createApp } from '../../src/app.js';
 import { pool } from '../../src/db/pool.js';
 import { config } from '../../src/config.js';
 import { todayIn, addDays } from '../../src/domain/dates.js';
-import { DEV_SAMPLE_PASSWORD } from '../../src/domain/constants.js';
 
+const ID = (n) => `a0000000-0000-4000-8000-00000000000${n}`;
 const T = todayIn(config.timeZone);
 let server;
 let base;
@@ -21,26 +21,12 @@ before(async () => {
 });
 after(async () => { server?.close(); await pool.end(); });
 
-const ACCOUNTS = {
-  1: ['laila.alharbi@clinics.example', 'Riyadh North Clinic'],
-  2: ['omar.khan@clinics.example', 'Jeddah Central Clinic'],
-  4: ['faisal.mahmoud@clinics.example', 'Jeddah Central Clinic'],
-  6: ['ziad.almutairi@clinics.example', 'Riyadh North Clinic'],
-};
-
 /** Minimal client that keeps the session cookie per user. */
 async function as(n) {
-  const [email, clinicName] = ACCOUNTS[n];
-  const listed = await fetch(`${base}/auth/clinics?username=${encodeURIComponent(email)}`);
-  const clinics = (await listed.json()).clinics;
-  const clinic = clinics.find((c) => c.name === clinicName);
-  if (clinics.length) assert.ok(clinic, `clinic ${clinicName}`);
-  const res = await fetch(`${base}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'hdp' },
-    body: JSON.stringify({ email, password: DEV_SAMPLE_PASSWORD, clinicId: clinic?.id || '' }),
+  const res = await fetch(`${base}/auth/dev-login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'hdp' }, body: JSON.stringify({ userId: ID(n) }),
   });
-  assert.equal(res.status, 200, 'login');
+  assert.equal(res.status, 200, 'dev login');
   const cookie = res.headers.get('set-cookie').split(';')[0];
   const call = async (method, path, body, { form } = {}) => {
     const headers = { Cookie: cookie, 'X-Requested-With': 'hdp' };
@@ -59,20 +45,8 @@ function pdfForm(docType, name = `${docType}.pdf`) {
   return f;
 }
 
-test('sign-in clinic list is limited to the user name', async () => {
-  const laila = await fetch(`${base}/auth/clinics?username=${encodeURIComponent('laila.alharbi@clinics.example')}`);
-  assert.equal(laila.status, 200);
-  assert.deepEqual((await laila.json()).clinics.map((c) => c.name), ['Riyadh North Clinic']);
-  const unknown = await fetch(`${base}/auth/clinics?username=${encodeURIComponent('nobody@clinics.example')}`);
-  assert.equal(unknown.status, 200);
-  assert.deepEqual((await unknown.json()).clinics, []);
-  const empty = await fetch(`${base}/auth/clinics`);
-  assert.equal(empty.status, 200);
-  assert.deepEqual((await empty.json()).clinics, []);
-});
-
 test('state-changing calls without the CSRF header are refused', async () => {
-  const r = await fetch(`${base}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  const r = await fetch(`${base}/auth/dev-login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
   assert.equal(r.status, 403);
 });
 
@@ -89,7 +63,8 @@ test('internal request: create → upload → submit → approve → letter', as
   const clinics = await laila.get('/reference/facilities?destinationType=Internal&city=Jeddah');
   const draft = await laila.post('/requests', {
     patient: { id: pts.body[0].id }, patientMobile: '0501234567', relativeMobile: '0559876543', relativeName: 'Test relative (son)', destinationType: 'Internal', destinationCity: 'Jeddah',
-    receivingFacilityId: clinics.body[0].id, travelStart: addDays(T, 10), travelEnd: addDays(T, 17), sessionsRequired: 3,
+    receivingFacilityId: clinics.body[0].id, travelStart: addDays(T, 10), travelEnd: addDays(T, 17),
+    sessionPlan: [{ date: addDays(T, 10), shift: 'Morning' }, { date: addDays(T, 12), shift: 'Afternoon' }, { date: addDays(T, 14), shift: 'Morning' }],
   });
   assert.equal(draft.status, 201);
   const id = draft.body.id;

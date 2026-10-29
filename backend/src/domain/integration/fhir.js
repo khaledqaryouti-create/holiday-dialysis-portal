@@ -1,6 +1,8 @@
 // FHIR R4: build ServiceRequest / Appointment transaction Bundles and DocumentReference; read Patient resources.
 // Pure functions — no I/O.
 
+import { planText } from '../sessionPlan.js';
+
 const STATUS = { // event → ServiceRequest.status, Appointment.status
   Submitted: ['active', null], SentToProvider: ['active', null], DatesProposed: ['active', 'proposed'], Confirmed: ['active', 'booked'],
   Rejected: ['revoked', 'cancelled'], Withdrawn: ['revoked', 'cancelled'], Completed: ['completed', 'fulfilled'],
@@ -47,7 +49,7 @@ export function requestBundle(s, cfg) {
   const srUrl = 'urn:uuid:servicerequest-1';
   const start = s.confirmed?.start || s.travel.start;
   const end = s.confirmed?.end || s.travel.end;
-  const note = [`Event: ${s.eventLabel || s.event}`, s.note].filter(Boolean).map((text) => ({ text }));
+  const note = [`Event: ${s.eventLabel || s.event}`, s.sessionPlan?.length ? `Treatment days: ${planText(s.sessionPlan)}` : null, s.note].filter(Boolean).map((text) => ({ text }));
   const entries = [
     { fullUrl: patientUrl, resource: patientResource(s, cfg), request: { method: 'POST', url: 'Patient', ifNoneExist: `identifier=${q(sys.mrn)}|${q(s.patient.mrn)}` } },
     {

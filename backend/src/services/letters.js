@@ -2,6 +2,7 @@
 import PDFDocument from 'pdfkit';
 import { fmtDate, fmtRange, fmtDateTime } from '../domain/dates.js';
 import { config } from '../config.js';
+import { planText } from '../domain/sessionPlan.js';
 
 const GREEN = '#0f4a30';
 const GREY = '#55625a';
@@ -37,6 +38,7 @@ export function confirmationLetterPdf(r, decision) {
     ['Travel dates', fmtRange(r.travelStart, r.travelEnd)],
     ['Confirmed sessions', fmtRange(decision.confirmedStart, decision.confirmedEnd)],
     ['Sessions requested', String(r.sessionsRequired ?? '—')],
+    ...(r.sessionPlan?.length ? [['Requested days & shifts', planText(r.sessionPlan)]] : []),
     ['Modality', r.modality || 'Haemodialysis'],
   ];
   if (decision.notes) rows.push(['Facility notes', decision.notes]);

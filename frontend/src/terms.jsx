@@ -19,16 +19,17 @@ const Ctx = createContext({ refresh: async () => {}, version: 0 });
 export function TerminologyProvider({ children }) {
   const [version, setVersion] = useState(0);
   const [ready, setReady] = useState(false);
-  const refresh = useCallback(async () => {
+  const load = useCallback(async () => {
     try { const r = await api.get('/branding/terminology'); current = { enabled: !!r?.enabled, terms: r?.terms || {} }; } catch { /* keep the original wording */ }
-    setVersion((v) => v + 1);
-    setReady(true);
   }, []);
+  // After IT saves the Terminology page: load the new wording and re-draw the app with it.
+  const refresh = useCallback(async () => { await load(); setVersion((v) => v + 1); }, [load]);
   useEffect(() => {
-    refresh();
+    // First load happens BEFORE the app is shown, so nothing is re-drawn (and nothing typed is lost).
+    load().finally(() => setReady(true));
     const tm = setTimeout(() => setReady(true), 2000); // never hold the app back for long
     return () => clearTimeout(tm);
-  }, [refresh]);
+  }, [load]);
   if (!ready) return null;
   // key: re-draw the app with the new wording after IT saves the Terminology page
   return <Ctx.Provider value={{ refresh, version }}><div key={version} style={{ display: 'contents' }}>{children}</div></Ctx.Provider>;

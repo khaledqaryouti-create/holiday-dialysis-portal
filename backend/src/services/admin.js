@@ -2,9 +2,12 @@
 import crypto from 'node:crypto';
 import { query, withTx } from '../db/pool.js';
 import { ROLES, FACILITY_TYPE, SLA_STAGES, MERGE_FIELDS } from '../domain/constants.js';
+import { passwordMessage, passwordProblems } from '../domain/auth.js';
 import { isEmail, validatePassword } from '../domain/validation.js';
 import { validationFailed, notFound, badRequest } from '../lib/errors.js';
+import { hashPassword } from '../lib/passwords.js';
 import { audit } from './audit.js';
+import { loadAuthSettings } from './authSettings.js';
 import { listUsers, loadUser } from './users.js';
 import { notify, flushEmails } from './notifications.js';
 import { config } from '../config.js';
@@ -12,7 +15,7 @@ import { config } from '../config.js';
 const isUuid = (s) => /^[0-9a-f-]{36}$/i.test(String(s));
 
 // ------------------------------------------------------------------ users
-function cleanUserInput(b, { requireAll, requirePassword = requireAll }) {
+function cleanUserInput(b, { requireAll, requirePassword = requireAll, checkPassword = true }) {
   const e = {};
   const name = String(b.name ?? '').trim();
   const email = String(b.email ?? '').trim().toLowerCase();
@@ -23,8 +26,10 @@ function cleanUserInput(b, { requireAll, requirePassword = requireAll }) {
   if (requireAll || b.email !== undefined) if (!isEmail(email)) e.email = 'Enter a valid work email.';
   if (!roles.length) e.roles = 'Choose at least one role.';
   if (roles.includes(ROLES.CLINIC_STAFF) && !clinicIds.length) e.clinicIds = 'Clinic Staff need a clinic.';
-  const passwordErr = validatePassword(password, { required: requirePassword });
-  if (passwordErr) e.password = passwordErr;
+  if (checkPassword) {
+    const passwordErr = validatePassword(password, { required: requirePassword });
+    if (passwordErr) e.password = passwordErr;
+  }
   if (Object.keys(e).length) throw validationFailed(e);
   return { name, email, roles, clinicIds: roles.includes(ROLES.CLINIC_STAFF) ? clinicIds : [], password: password || null };
 }
@@ -54,12 +59,19 @@ export async function replaceAssignments(c, userId, roles, clinicIds) {
 export const adminListUsers = () => listUsers();
 
 export async function createUser(admin, body, ip) {
-  const u = cleanUserInput(body, { requireAll: true });
+  const u = cleanUserInput(body, { requireAll: true, checkPassword: false });
+  const s = await loadAuthSettings();
+  const passwordErr = passwordMessage(passwordProblems(body.password, {
+    minLength: s.passwordMinLength, requireUpper: s.passwordRequireUpper, requireLower: s.passwordRequireLower,
+    requireDigit: s.passwordRequireDigit, requireSymbol: s.passwordRequireSymbol,
+  }));
+  if (passwordErr) throw validationFailed({ password: passwordErr });
+  const passwordHash = await hashPassword(String(body.password));
   let emailIds = [];
   const id = await withTx(async (c) => {
     const { rows } = await c.query(
-      `INSERT INTO portal_user (email, display_name, password_hash) VALUES ($1, $2, crypt($3, gen_salt('bf'))) RETURNING id`,
-      [u.email, u.name, u.password]);
+      `INSERT INTO portal_user (email, display_name, password_hash, must_change_password) VALUES ($1, $2, $3, false) RETURNING id`,
+      [u.email, u.name, passwordHash]);
     const userId = rows[0].id;
     await replaceAssignments(c, userId, u.roles, u.clinicIds);
     await audit(c, { user: admin, action: 'UserCreated', entityType: 'User', entityId: u.email, detail: { roles: u.roles, clinicIds: u.clinicIds, passwordSet: true }, ip });

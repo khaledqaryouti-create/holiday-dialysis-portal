@@ -21,6 +21,7 @@ import { audit } from './audit.js';
 import { currentFieldRules } from './formSettings.js';
 import { currentInputRules } from './validationSettings.js';
 import { queueForAction } from './integrations/engine.js';
+import { normalizePlan } from '../domain/sessionPlan.js';
 import { notify, flushEmails, getActiveTemplate } from './notifications.js';
 import { userIdsWithRole } from './users.js';
 import { storage, storageKey } from './storage.js';
@@ -37,7 +38,7 @@ const NOT_FOUND_MSG = 'Request not found, or you do not have access to it.';
 // ------------------------------------------------------------------ row mapping
 const REQ_COLS = `
   r.id, r.request_number, r.current_status, r.destination_type, r.destination_country, co.country_name AS destination_country_name,
-  r.destination_city, r.free_text_facility, r.travel_start_date, r.travel_end_date, r.sessions_required, r.mod_applies,
+  r.destination_city, r.free_text_facility, r.travel_start_date, r.travel_end_date, r.sessions_required, r.session_plan, r.mod_applies,
   r.status_changed_at, r.created_at, r.updated_at, r.submitted_at, r.confirmed_at, r.completed_at, r.row_version,
   r.created_by_user_id, cu.display_name AS created_by_name,
   r.requesting_facility_id, rf.facility_name AS requesting_facility_name,
@@ -62,6 +63,7 @@ function mapRequest(x) {
     destinationCountry: x.destination_country?.trim() || null, destinationCountryName: x.destination_country_name,
     destinationCity: x.destination_city, freeTextFacility: x.free_text_facility,
     travelStart: x.travel_start_date, travelEnd: x.travel_end_date, sessionsRequired: x.sessions_required, modApplies: x.mod_applies,
+    sessionPlan: normalizePlan(x.session_plan),
     statusChangedAt: x.status_changed_at, createdAt: x.created_at, updatedAt: x.updated_at, submittedAt: x.submitted_at,
     confirmedAt: x.confirmed_at, completedAt: x.completed_at, rowVersion: x.row_version,
     createdBy: x.created_by_user_id, createdByName: x.created_by_name,
@@ -348,9 +350,12 @@ function sanitizeDraft(body = {}, vr) {
     if (v && !isIsoDate(v)) errors[k] = 'Enter a valid date.';
     out[k] = v && isIsoDate(v) ? v : null;
   }
+  // Treatment days & shifts: the number of sessions is the number of days chosen.
+  // (Older clients that only send sessionsRequired still work while the plan is empty.)
+  out.sessionPlan = normalizePlan(body.sessionPlan);
   const s = body.sessionsRequired;
-  if (s != null && s !== '' && !(Number.isInteger(Number(s)) && Number(s) > 0)) errors.sessionsRequired = 'Enter a whole number of 1 or more.';
-  out.sessionsRequired = Number.isInteger(Number(s)) && Number(s) > 0 ? Number(s) : null;
+  if (!out.sessionPlan.length && s != null && s !== '' && !(Number.isInteger(Number(s)) && Number(s) > 0)) errors.sessionsRequired = 'Enter a whole number of 1 or more.';
+  out.sessionsRequired = out.sessionPlan.length || (Number.isInteger(Number(s)) && Number(s) > 0 ? Number(s) : null);
   out.modApplies = body.modApplies === true;
   // contact numbers: drafts may be incomplete, but anything typed must be a valid mobile number
   for (const k of ['patientMobile', 'relativeMobile']) {
@@ -411,7 +416,7 @@ async function writeDraftFields(c, user, r, d) {
        destination_type = ${p(d.destinationType)}, destination_country = ${p(country)}, destination_city = ${p(d.destinationCity)},
        receiving_facility_id = ${p(d.receivingFacilityId)},
        free_text_facility = ${p(d.destinationType === DEST.INTERNATIONAL && !d.receivingFacilityId ? d.freeTextFacility : null)},
-       travel_start_date = ${p(d.travelStart)}, travel_end_date = ${p(d.travelEnd)}, sessions_required = ${p(d.sessionsRequired)},
+       travel_start_date = ${p(d.travelStart)}, travel_end_date = ${p(d.travelEnd)}, sessions_required = ${p(d.sessionsRequired)}, session_plan = ${p(JSON.stringify(d.sessionPlan || []))}::jsonb,
        mod_applies = ${p(d.modApplies)},
        patient_mobile_enc = ${encOrNull(p, d.patientMobile)}, relative_mobile_enc = ${encOrNull(p, d.relativeMobile)}, relative_name = ${p(d.relativeName)},
        updated_at = now(), row_version = row_version + 1
@@ -526,7 +531,7 @@ async function draftInputs(c, r) {
       patient: r.patientId ? { id: r.patientId } : { name: r.patientName, mrn: r.mrn, identifierType: r.identifierType, identifier },
       destinationType: r.destinationType, destinationCountry: r.destinationCountry, destinationCity: r.destinationCity,
       receivingFacilityId: r.receivingFacilityId, freeTextFacility: r.freeTextFacility,
-      travelStart: r.travelStart, travelEnd: r.travelEnd, sessionsRequired: r.sessionsRequired, modApplies: r.modApplies,
+      travelStart: r.travelStart, travelEnd: r.travelEnd, sessionsRequired: r.sessionsRequired, sessionPlan: r.sessionPlan, modApplies: r.modApplies,
     },
     identifier,
   };

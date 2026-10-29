@@ -1,4 +1,5 @@
 import { query } from '../db/pool.js';
+import { verifyPassword } from '../lib/passwords.js';
 
 const USER_SQL = `
   SELECT u.id, u.email, u.display_name AS name, u.account_status AS status, u.last_sign_in_at,
@@ -50,17 +51,21 @@ export async function touchSignIn(id, method = null) {
 
 const isUuid = (s) => /^[0-9a-f-]{36}$/i.test(String(s));
 
-/** Looks up an account by email and checks a bcrypt password. Returns null when the email is unknown or the password does not match. */
+/** Looks up an account by email and checks its password (scrypt or older bcrypt). Returns null when the email is unknown or the password does not match. */
 export async function matchPassword(email, password) {
+  const pw = String(password ?? '');
   const { rows } = await query(
-    `SELECT id, account_status AS status,
-            (password_hash IS NOT NULL AND password_hash = crypt($2, password_hash)) AS password_ok
+    `SELECT id, account_status AS status, password_hash LIKE 'scrypt$%' AS is_scrypt,
+            CASE WHEN password_hash LIKE 'scrypt$%' THEN password_hash END AS scrypt_hash,
+            (password_hash IS NOT NULL AND password_hash NOT LIKE 'scrypt$%' AND password_hash = crypt($2, password_hash)) AS bcrypt_ok
        FROM portal_user
       WHERE lower(email) = lower($1)`,
-    [String(email ?? '').trim(), String(password ?? '')],
+    [String(email ?? '').trim(), pw],
   );
   const row = rows[0];
-  if (!row?.password_ok) return null;
+  if (!row) return null;
+  const ok = row.is_scrypt ? await verifyPassword(pw, row.scrypt_hash) : row.bcrypt_ok;
+  if (!ok) return null;
   return { id: row.id, status: row.status };
 }
 

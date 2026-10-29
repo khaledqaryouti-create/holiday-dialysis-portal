@@ -1,63 +1,67 @@
-# Terminology update — Admin Settings → Terminology
+# Treatment days & shifts — New Request, step 2
 
-Lets IT replace the portal's standard words with the organisation's own, e.g. **"Clinic" instead of "My Requests"**, while **keeping the original wording**:
-- Each term shows its **original (kept)** next to **your term**. Leave a box empty to use the original.
-- **Use original** on any term, or **Restore all originals**, brings the standard wording back. The originals are built into the portal and are never changed.
-- **Off until you switch it on:** nothing changes for users until you tick **Use these terms** and click **Save**. Changes are recorded in Audit History.
-- Two terms in the same group can't get the same wording, e.g. two statuses both called "Confirmed".
+Replaces "Number of sessions needed" with a calendar of the trip:
+- After choosing the **travel dates**, a calendar of that period appears. **Click each day** the patient needs dialysis. Days outside the trip, or in the past, are crossed out.
+- Each chosen day is listed with its **shift** (Morning / Afternoon / Evening) and an **✕** to remove it. A new day takes the last shift used, and **Apply to all** sets one shift for every day.
+- **Quick select:** *Sun · Tue · Thu* or *Mon · Wed · Sat* fills a 3-times-a-week schedule in one click. **Clear all** empties the list.
+- The **number of sessions is counted automatically** from the days chosen.
+- The days and shifts appear in **Review & Submit**, on the **request details** (seen by the receiving clinic / coordination team), on the **confirmation letter**, and in **EMR messages**:
+  - JSON: `treatmentDays`
+  - FHIR: a ServiceRequest note
+  - HL7 v2: an NTE segment
+  - CDA: a table row
+- Changing the travel dates drops chosen days that fall outside the new dates. The server checks again on submit: at least one day, all within the trip, none in the past.
+- The shift names can be renamed in **Admin Settings → Terminology** (group "Shifts"), as can the field name "Treatment days & shifts".
 
-**Terms you can rename (40):**
-- **Menu and pages:** My Requests, Work Queue, Requests, Patients, Reports, Admin Settings, Help.
-- **Buttons:** New Request, Register patient, Save as draft, Submit request.
-- **New Request steps:** 1–4.
-- **Field names:** Patient MRN, Patient name, Home clinic, Requesting staff, Destination type, Receiving facility.
-- **Destination types:** Internal, External KSA, International.
-- **Request statuses:** all 9.
+This update also fixes a problem in the **Terminology** update: when the portal loaded the wording, it could redraw the page and clear what someone had just typed. Now it only redraws after an admin saves the Terminology page (`frontend/src/terms.jsx`).
 
-The new wording appears in the menu, page titles, buttons, the New Request steps, field labels, status labels, filters, reports and request details. Emails and the confirmation letter keep their own wording; edit emails in **Notification Templates**.
+> Apply after the Terminology and Integrations updates. This one adds to both.
 
 ## Install
-1. Run **`016_terminology.sql`** on the database (Supabase SQL Editor, or your own PostgreSQL). It is safe to run twice.
+1. Run **`017_session_plan.sql`** on the database. It is safe to run twice.
 2. Unzip into the project folder and paste the prompt below into Cursor.
-3. Run `npm test` and `npm run build`, then deploy.
 
 ## Paste this into the Cursor Agent
 
 ```
-Apply the "Terminology" update from the folder terminology-update (unzipped in the project root).
-MERGE carefully — keep my existing layout, wording elsewhere, logo, login page, MRN-first order, Form Fields,
-Validation Rules, Patients, Integrations and any changes I made; only overwrite files marked NEW.
+Apply the "Treatment days & shifts" update from the folder treatment-days-update (unzipped in the project root).
+MERGE carefully — keep my layout, wording, MRN-first order, Form Fields, Validation Rules, Patients, Integrations,
+Terminology and any changes I made; only overwrite files marked NEW.
 
-1. Copy the NEW files to the same paths:
-   backend/db/migrations/016_terminology.sql, backend/src/domain/terminology.js, backend/src/services/terminology.js,
-   backend/test/unit/terminology.test.js, frontend/src/terms.jsx, frontend/src/pages/TerminologyPage.jsx
-2. backend/src/routes/branding.js: import * as terminology from '../services/terminology.js' and add
-   brandingRouter.get('/terminology', …publicTerminology…) (public, like branding — no sign-in needed).
-3. backend/src/routes/admin.js: import the terminology service; add GET and PUT '/terminology'.
-4. frontend/src/main.jsx: wrap <App /> in <TerminologyProvider> (import from './terms.jsx'), inside UiProvider.
-5. Wherever these words are shown, use the helpers from frontend/src/terms.jsx instead of fixed text
-   (compare each file with the reference and change ONLY these words):
-   - App.jsx nav labels → t('nav.myRequests') / t('nav.workQueue') / t('nav.reports') / t('nav.patients') /
-     t('nav.adminSettings') / t('nav.help')
-   - components/ui.jsx StatusPill → statusLabel(status) / statusShort(status); DestChip → destLabel(type)
-   - components/RequestsTabs.jsx → t('nav.requestsTab'), t('nav.patients')
-   - pages/DashboardPage.jsx → page title, "Register patient", "New Request", status filter labels (statusLabel),
-     destination filter labels (destLabel)
-   - pages/ReportsPage.jsx → STATUS_META[x].label → statusLabel(x); DEST_LABELS[x] → destLabel(x)
-   - pages/RequestDetailPage.jsx → breadcrumb, destLabel, and the row labels Home clinic / Requesting staff /
-     Destination type / Receiving facility / Patient name via t('field.…')
-   - pages/WizardPage.jsx → step titles via t('step.1'…'step.4'), field labels via t('field.…'),
-     "Save as draft" t('action.saveDraft'), "Submit request" t('action.submitRequest'), breadcrumb,
-     destination names via destLabel(…). Keep my MRN-first order, Form Fields, Validation Rules and EMR lookup.
-   - pages/PatientsPage.jsx → page title t('nav.patients'), "Register patient" t('action.registerPatient')
-   - pages/AdminPage.jsx → tab ['terminology', 'Terminology', 'edit'] after Branding, route path="terminology",
-     import TerminologyPage, and the page heading t('nav.adminSettings')
-6. frontend/src/styles.css: append the block starting "/* ---------- Admin Settings → Terminology".
-7. Run migration 016 against the database (safe to run again), then npm test and npm run build.
-   Report anything that didn't apply cleanly.
+1. NEW files (copy): backend/db/migrations/017_session_plan.sql, backend/src/domain/sessionPlan.js,
+   backend/test/unit/sessionPlan.test.js, frontend/src/components/TreatmentDaysPicker.jsx
+2. backend/src/domain/validation.js: import { normalizePlan, planError } from './sessionPlan.js'; in
+   validateDestinationStep replace the "sessionsRequired" check with the sessionPlan check from the reference
+   (error key: sessionPlan).
+3. backend/src/services/requests.js (compare with the reference, change only these parts):
+   - import { normalizePlan } from '../domain/sessionPlan.js'
+   - REQ_COLS: add r.session_plan; mapRequest: add sessionPlan: normalizePlan(x.session_plan)
+   - sanitizeDraft: out.sessionPlan = normalizePlan(body.sessionPlan); sessionsRequired = number of days (fallback to the old
+     number only when no days are sent)
+   - writeDraftFields: also set session_plan = <json>::jsonb
+   - draftInputs: pass sessionPlan: r.sessionPlan
+4. backend/src/services/letters.js: add the "Requested days & shifts" row (planText) after "Sessions requested".
+5. backend/src/domain/terminology.js: add the 'field.treatmentDays' term and the "Shifts" group (from SHIFTS).
+6. Integrations (if installed): engine.js snapshot adds r.session_plan → sessionPlan; json.js adds treatmentDays;
+   hl7v2.js / fhir.js / cda.js add the "Treatment days" note/row using planText; payloads.js sample adds sessionPlan.
+7. frontend/src/terms.jsx: use the reference version (first load happens before the app shows; only refresh() after
+   saving the Terminology page re-draws the app).
+8. frontend/src/pages/WizardPage.jsx: merge ONLY these parts from the reference:
+   - imports of TreatmentDaysPicker / shortDay / shiftLabel / normalizePlan
+   - sessionPlan: [] in the blank draft, loading it from the draft, sending sessionPlan in the payload
+   - step 2: replace the "Number of sessions needed" input with <TreatmentDaysPicker …/> (label t('field.treatmentDays'))
+   - travel dates onChange also drops chosen days outside the new dates
+   - the step-2 Next check uses d.sessionPlan.length > 0
+   - the Review row shows the list of days and shifts
+   Keep everything else of mine.
+9. frontend/src/pages/RequestDetailPage.jsx: add the "Treatment days & shifts" row after "Sessions requested".
+10. backend/test/unit/validation.test.js and backend/test/api/flow.test.js: use sessionPlan instead of sessionsRequired (see reference).
+11. frontend/src/styles.css: append the block starting "/* ---------- New Request: Treatment days & shifts".
+12. Run migration 017 (safe to run again), then npm test and npm run build. Report anything that didn't apply cleanly.
 ```
 
 ## Check it
-1. As IT Admin, go to Admin Settings → **Terminology** and type **Clinic** next to *My Requests*.
-2. Tick **Use these terms** and click **Save**. The menu now says **Clinic**.
-3. Click **Use original**, or **Restore all originals**, then **Save**. The menu says **My Requests** again.
+1. Open New Request and go to step 2.
+2. Choose travel dates, then click two days on the calendar.
+3. Set one of them to **Afternoon shift**, then click **Sun · Tue · Thu**.
+4. Go Next to Review: the days and shifts are listed. Submit, and the request details show them too.

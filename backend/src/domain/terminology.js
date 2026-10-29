@@ -2,6 +2,7 @@
 // The ORIGINAL wording is kept here and is always used when no alternative is set or terminology is switched off.
 // Shared by the API (validation, public settings) and the screens.
 import { STATUS_META, DEST_LABELS } from './constants.js';
+import { SHIFTS } from './sessionPlan.js';
 
 /** Every term the portal lets you rename. `where` tells IT where the term appears. */
 export const TERMS = Object.freeze([
@@ -30,6 +31,9 @@ export const TERMS = Object.freeze([
   { key: 'field.requestingStaff', group: 'Field names', original: 'Requesting staff', where: 'New Request, request details' },
   { key: 'field.destinationType', group: 'Field names', original: 'Destination type', where: 'New Request, request details, filters' },
   { key: 'field.receivingFacility', group: 'Field names', original: 'Receiving facility', where: 'New Request, request details' },
+  { key: 'field.treatmentDays', group: 'Field names', original: 'Treatment days & shifts', where: 'New Request step 2, request details' },
+  // ---- shifts
+  ...Object.entries(SHIFTS).map(([k, v]) => ({ key: `shift.${k}`, group: 'Shifts', original: v, where: 'Treatment days & shifts' })),
   // ---- destination types
   ...Object.entries(DEST_LABELS).map(([k, v]) => ({ key: `dest.${k}`, group: 'Destination types', original: v, where: 'Everywhere a destination type is shown' })),
   // ---- statuses

@@ -6,6 +6,8 @@ import { api, qs, ApiError } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { Icon } from '../components/Icon.jsx';
 import DateRangePicker from '../components/DateRangePicker.jsx';
+import TreatmentDaysPicker, { shortDay, shiftLabel } from '../components/TreatmentDaysPicker.jsx';
+import { normalizePlan } from '@domain/sessionPlan.js';
 import { useUi, ErrorBox, FieldError, Loading, fmtSize } from '../components/ui.jsx';
 import { DEST, DEST_LABELS, DOC_TYPES, WIZARD_DOC_TYPES } from '@domain/constants.js';
 import { validatePatientStep, validateDestinationStep, validateAttachmentsStep, validateFile } from '@domain/validation.js';
@@ -20,7 +22,7 @@ const STEPS_KEYS = ['step.1', 'step.2', 'step.3', 'step.4'];
 const blank = () => ({
   patient: { id: null, name: '', mrn: '', identifierType: 'NationalId', identifier: '', identifierMasked: '' },
   destinationType: '', destinationCountry: '', destinationCity: '', receivingFacilityId: '', freeTextFacility: '',
-  travelStart: '', travelEnd: '', sessionsRequired: '', modApplies: false,
+  travelStart: '', travelEnd: '', sessionsRequired: '', sessionPlan: [], modApplies: false,
   patientMobile: '', relativeMobile: '', relativeName: '',
 });
 
@@ -60,7 +62,7 @@ export default function WizardPage() {
         patient: { id: p.id || null, name: p.name || '', mrn: p.mrn || '', identifierType: p.identifierType || 'NationalId', identifier: p.identifier || '', identifierMasked: p.identifierMasked || '' },
         destinationType: r.destinationType || '', destinationCountry: r.destinationType === DEST.INTERNATIONAL ? r.destinationCountry || '' : '',
         destinationCity: r.destinationCity || '', receivingFacilityId: r.receivingFacilityId || '', freeTextFacility: r.freeTextFacility || '',
-        travelStart: r.travelStart || '', travelEnd: r.travelEnd || '', sessionsRequired: r.sessionsRequired ?? '', modApplies: r.modApplies,
+        travelStart: r.travelStart || '', travelEnd: r.travelEnd || '', sessionsRequired: r.sessionsRequired ?? '', sessionPlan: normalizePlan(r.sessionPlan), modApplies: r.modApplies,
         patientMobile: r.contacts?.patientMobile || '', relativeMobile: r.contacts?.relativeMobile || '', relativeName: r.contacts?.relativeName || '',
       });
       setOtherFacility(!!r.freeTextFacility);
@@ -90,7 +92,7 @@ export default function WizardPage() {
     patient: d.patient.id ? { id: d.patient.id } : { name: d.patient.name, mrn: d.patient.mrn, identifierType: d.patient.identifierType, identifier: d.patient.identifier },
     destinationType: d.destinationType || null, destinationCountry: d.destinationCountry || null, destinationCity: d.destinationCity || null,
     receivingFacilityId: otherFacility ? null : d.receivingFacilityId || null, freeTextFacility: otherFacility ? d.freeTextFacility : null,
-    travelStart: d.travelStart || null, travelEnd: d.travelEnd || null, sessionsRequired: d.sessionsRequired === '' ? null : Number(d.sessionsRequired), modApplies: d.modApplies,
+    travelStart: d.travelStart || null, travelEnd: d.travelEnd || null, sessionPlan: d.sessionPlan, sessionsRequired: d.sessionPlan.length || null, modApplies: d.modApplies,
     patientMobile: (!isHidden(rules, 'patientMobile') && d.patientMobile) || null,
     relativeMobile: (!isHidden(rules, 'relativeMobile') && d.relativeMobile) || null,
     relativeName: (!isHidden(rules, 'relativeName') && d.relativeName) || null,
@@ -119,7 +121,7 @@ export default function WizardPage() {
   const ready = (n) => {
     if (n === 1) return (d.patient.id || (d.patient.name && d.patient.mrn && d.patient.identifier)) && d.destinationType;
     if (n === 2) return (d.destinationType === DEST.INTERNATIONAL ? d.destinationCountry && d.destinationCity : d.destinationCity)
-      && (otherFacility ? d.freeTextFacility : d.receivingFacilityId) && d.travelStart && d.travelEnd && String(d.sessionsRequired).trim();
+      && (otherFacility ? d.freeTextFacility : d.receivingFacilityId) && d.travelStart && d.travelEnd && d.sessionPlan.length > 0;
     if (n === 3) return Object.keys(validateAttachmentsStep(d, Object.keys(docs), rules)).length === 0;
     if (n === 4) return confirmed && [1, 2, 3].every((s) => !Object.keys(stepErrors(s)).length);
     return true;
@@ -425,12 +427,15 @@ function StepDestination({ d, errs, upd, today, otherFacility, setOtherFacility 
         <div style={{ maxWidth: 380 }}>
           <DateRangePicker id="w-dates" ariaLabel="Travel dates" placeholder="Choose travel start and end" min={today}
             start={d.travelStart || ''} end={d.travelEnd || ''} invalid={!!(errs.travelStart || errs.travelEnd)}
-            onChange={(v) => upd({ travelStart: v.start, travelEnd: v.end })} />
+            onChange={(v) => upd({ travelStart: v.start, travelEnd: v.end, sessionPlan: d.sessionPlan.filter((x) => x.date >= v.start && x.date <= v.end) })} />
           <div className="help">Click the arrival day, then the departure day.</div>
           <FieldError msg={errs.travelStart} /><FieldError msg={errs.travelEnd} /></div>
-        <label className="lbl" htmlFor="w-ses">Number of sessions needed <span className="req">*</span></label>
-        <div><input type="number" id="w-ses" min="1" step="1" className={`input ${errs.sessionsRequired ? 'err' : ''}`} value={d.sessionsRequired} style={{ maxWidth: 140 }}
-          onChange={(e) => upd({ sessionsRequired: e.target.value })} /><FieldError msg={errs.sessionsRequired} /></div>
+        <span className="lbl">{t('field.treatmentDays')} <span className="req">*</span></span>
+        <div>
+          <TreatmentDaysPicker start={d.travelStart} end={d.travelEnd} min={today} value={d.sessionPlan} invalid={!!errs.sessionPlan}
+            onChange={(v) => upd({ sessionPlan: v })} />
+          <FieldError msg={errs.sessionPlan} />
+        </div>
       </div>
     </>
   );
@@ -512,7 +517,7 @@ function StepReview({ d, user, docs, rules, otherFacility, confirmed, setConfirm
         <Sec title="Clinical & Destination Details" step={2} rows={[
           ['Destination', d.destinationType === DEST.INTERNATIONAL ? `${d.destinationCity}, ${d.destinationCountry}` : `${d.destinationCity}, KSA`],
           [t('field.receivingFacility'), facName], ['Travel start', fmtDate(d.travelStart)], ['Travel end', fmtDate(d.travelEnd)],
-          ['Length of stay', d.travelStart && d.travelEnd ? `${daysBetween(d.travelStart, d.travelEnd)} days` : '—'], ['Sessions', d.sessionsRequired],
+          ['Length of stay', d.travelStart && d.travelEnd ? `${daysBetween(d.travelStart, d.travelEnd)} days` : '—'], [t('field.treatmentDays'), d.sessionPlan.length ? <ul className="plan-list">{d.sessionPlan.map((x) => <li key={x.date}>{shortDay(x.date)} — <b>{shiftLabel(x.shift)}</b></li>)}</ul> : '—'],
         ]} />
       </div>
       <div style={{ marginTop: 16 }}>

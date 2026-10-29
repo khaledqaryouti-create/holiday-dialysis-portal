@@ -1,6 +1,8 @@
 // HL7 v3 CDA R2: build a ClinicalDocument for a request event (structured narrative) or a document (nonXMLBody, base64),
 // and read the patient from a CDA recordTarget. Pure functions — no XML library needed.
 
+import { planText } from '../sessionPlan.js';
+
 export const xml = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 const unxml = (v) => String(v ?? '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
 const ts = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(String(d)) ? String(d).replace(/-/g, '') : new Date(d).toISOString().replace(/[-:T]/g, '').slice(0, 14) + '+0000');
@@ -53,6 +55,7 @@ export function eventDocument(s, cfg) {
     ['Patient', s.patient.name], ['MRN', s.patient.mrn],
     ['Home clinic', s.requestingClinic.name], ['Destination', `${[s.destination.city, s.destination.countryName].filter(Boolean).join(', ')} (${s.destination.type})`],
     ['Receiving facility', s.destination.facility.name], ['Requested travel', `${s.travel.start} to ${s.travel.end}`], ['Sessions', s.sessionsRequired],
+    ...(s.sessionPlan?.length ? [['Treatment days', planText(s.sessionPlan)]] : []),
     ...(s.confirmed ? [['Confirmed sessions', `${s.confirmed.start} to ${s.confirmed.end}`]] : []),
     ...(s.note ? [['Note', s.note]] : []),
   ];

@@ -13,6 +13,7 @@ import { DEST, DEST_LABELS, DOC_TYPES, REASON_MAX, MAX_DATE_OPTIONS } from '@dom
 import { validateConfirmedDates, validateReason, isEmail, validateFile, validateDateOptions } from '@domain/validation.js';
 import { fmtRange, fmtTS, daysBetween } from '../lib/format.js';
 import { t, destLabel } from '../terms.jsx';
+import { shortDay, shiftLabel } from '../components/TreatmentDaysPicker.jsx';
 
 export default function RequestDetailPage() {
   const { id } = useParams();
@@ -129,7 +130,8 @@ export default function RequestDetailPage() {
               ['Destination', [r.destinationCity, r.destinationType === DEST.INTERNATIONAL ? r.destinationCountryName : 'KSA'].filter(Boolean).join(', ')],
               [t('field.receivingFacility'), <>{r.receivingFacilityName || r.freeTextFacility || '—'}{r.selectedFacilityId && r.selectedFacilityId !== r.receivingFacilityId && <span className="muted"> (emailed to {r.selectedFacilityName})</span>}</>],
               ['Travel dates', r.travelStart ? <>{fmtRange(r.travelStart, r.travelEnd)} <span className="muted">({daysBetween(r.travelStart, r.travelEnd)} days)</span></> : '—'],
-              ['Sessions requested', r.sessionsRequired], ['Modality', r.modality], ['MOD approval applies', r.modApplies ? 'Yes' : 'No'],
+              ['Sessions requested', r.sessionsRequired],
+              ...(r.sessionPlan?.length ? [[t('field.treatmentDays'), <ul className="plan-list">{r.sessionPlan.map((x) => <li key={x.date}>{shortDay(x.date)} — <b>{shiftLabel(x.shift)}</b></li>)}</ul>]] : []), ['Modality', r.modality], ['MOD approval applies', r.modApplies ? 'Yes' : 'No'],
               ...(r.decision ? [[r.decision.type === 'Approved' ? 'Confirmed sessions' : 'Reason', r.decision.type === 'Approved' ? fmtRange(r.decision.confirmedStart, r.decision.confirmedEnd) : r.decision.reason],
                 ...(r.decision.notes ? [['Provider notes', r.decision.notes]] : [])] : []),
             ])}</div></details>

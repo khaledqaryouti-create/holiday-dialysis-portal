@@ -2,6 +2,7 @@
 // Used by the API (authoritative) and by the React wizard (instant feedback).
 import { DEFAULT_FIELD_RULES, isRequired, isHidden } from './formRules.js';
 import { DEFAULT_INPUT_RULES, checkText, checkMobile, storeMobile } from './inputRules.js';
+import { normalizePlan, planError } from './sessionPlan.js';
 import { DEST, DOC_TYPES, MAX_FILE_BYTES, REASON_MIN, REASON_MAX, CONFIRMED_DATES_TOLERANCE_DAYS } from './constants.js';
 import { isIsoDate, addDays, fmtRange } from './dates.js';
 
@@ -82,9 +83,10 @@ export function validateDestinationStep(d, today) {
   if (blank(d.travelEnd)) e.travelEnd = 'Choose the travel end date.';
   else if (!isIsoDate(d.travelEnd)) e.travelEnd = 'Enter a valid date.';
   else if (isIsoDate(d.travelStart) && d.travelEnd <= d.travelStart) e.travelEnd = 'Travel end date must be after the start date.';
-  const s = d.sessionsRequired;
-  if (blank(s)) e.sessionsRequired = 'Enter the number of sessions.';
-  else if (!/^\d+$/.test(String(s)) || Number(s) < 1) e.sessionsRequired = 'Enter a whole number of 1 or more.';
+  // Treatment days & shifts (the number of sessions = the number of days chosen)
+  const plan = normalizePlan(d.sessionPlan);
+  const pe = planError(plan, isIsoDate(d.travelStart) ? d.travelStart : null, isIsoDate(d.travelEnd) ? d.travelEnd : null, today);
+  if (pe) e.sessionPlan = pe;
   return e;
 }
 

@@ -94,14 +94,17 @@ function Users() {
 }
 
 function UserForm({ user, clinics, onClose, onSaved }) {
-  const [f, setF] = useState({ name: user.name || '', email: user.email || '', roles: user.roles || [ROLES.CLINIC_STAFF], clinicIds: user.clinics?.map((c) => c.id) || [] });
+  const { options } = useAuth();
+  const [f, setF] = useState({ name: user.name || '', email: user.email || '', roles: user.roles || [ROLES.CLINIC_STAFF], clinicIds: user.clinics?.map((c) => c.id) || [], password: '' });
   const [err, setErr] = useState({});
   const [busy, setBusy] = useState(false);
   const toggle = (k, v) => setF((x) => ({ ...x, [k]: x[k].includes(v) ? x[k].filter((y) => y !== v) : [...x[k], v] }));
   const save = async () => {
     setBusy(true);
+    const { password, ...profile } = f;
     try {
-      if (user.id) await api.patch(`/admin/users/${user.id}`, f); else await api.post('/admin/users', f);
+      if (user.id) await api.patch(`/admin/users/${user.id}`, profile);
+      else await api.post('/admin/users', { ...profile, password });
       onSaved(user.id ? 'User updated' : `${f.name} added. Activation email sent.`);
     } catch (e) { setErr(e.fields && Object.keys(e.fields).length ? e.fields : { general: e.message }); } finally { setBusy(false); }
   };
@@ -118,8 +121,11 @@ function UserForm({ user, clinics, onClose, onSaved }) {
           <div className="stack" style={{ gap: 6 }}>{clinics.map((c) => <label key={c.id} className="check-row"><input type="checkbox" checked={f.clinicIds.includes(c.id)} onChange={() => toggle('clinicIds', c.id)} />{c.name}{!c.active && <span className="muted"> (inactive)</span>}</label>)}</div>
           <FieldError msg={err.clinicIds} /></div>
       )}
+      {!user.id && <>
+        {!options?.local && <div className="banner warn"><Icon name="info" /><span>Local passwords are <b>not active</b>. You can set the password now; it only starts working after you switch on <b>Local passwords</b> in Sign-in &amp; Directory and save.</span></div>}
+        <div className="f"><label htmlFor="uf-password">Password *</label><input id="uf-password" type="password" autoComplete="new-password" className={`input ${err.password ? 'err' : ''}`} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /><FieldError msg={err.password} /></div>
+      </>}
       <FieldError msg={err.general} />
-      {!user.id && <p className="small muted">Sign-in uses single sign-on, so no password is set here.</p>}
     </Modal>
   );
 }
