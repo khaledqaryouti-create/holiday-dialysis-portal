@@ -16,8 +16,18 @@ export function errorHandler(err, req, res, _next) {
   if (err?.code === 'LIMIT_FILE_SIZE') {
     return res.status(400).json({ error: { code: 'FILE_TOO_LARGE', message: 'File exceeds 10 MB.' } });
   }
-  if (err?.type === 'entity.parse.failed') {
+  if (err?.type === 'entity.too.large' || err?.status === 413 || err?.statusCode === 413) {
+    return res.status(413).json({ error: { code: 'PAYLOAD_TOO_LARGE', message: 'The request is too large.' } });
+  }
+  if (err?.type === 'entity.parse.failed' || (err instanceof SyntaxError && 'body' in err)) {
     return res.status(400).json({ error: { code: 'BAD_JSON', message: 'The request body is not valid JSON.' } });
+  }
+  // Any other client error raised by body parsing / middleware (bad charset, unsupported encoding …) → 4xx, never 500.
+  {
+    const s = err?.status ?? err?.statusCode;
+    if (Number.isInteger(s) && s >= 400 && s < 500) {
+      return res.status(s).json({ error: { code: 'BAD_REQUEST', message: 'The request could not be processed.' } });
+    }
   }
   if (err?.code === PG.unique) {
     return res.status(409).json({ error: { code: 'DUPLICATE', message: 'A record with the same unique value already exists.', constraint: err.constraint } });
