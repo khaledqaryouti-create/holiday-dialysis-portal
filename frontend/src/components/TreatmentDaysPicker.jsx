@@ -1,7 +1,7 @@
 // Treatment days & shifts: click each dialysis day on a calendar of the trip, then choose the shift for each day.
 // Days outside the travel dates (or in the past) can't be chosen. Weekly patterns fill a typical 3-times-a-week schedule.
 // value / onChange: [{ date: 'YYYY-MM-DD', shift: 'Morning' }, …] (sorted by date).
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from './Icon.jsx';
 import { SHIFTS, DEFAULT_SHIFT, PATTERNS, MAX_SESSION_DAYS, patternDays } from '@domain/sessionPlan.js';
 import { t } from '../terms.jsx';
@@ -34,8 +34,11 @@ function monthGrid(firstIso) {
  * @param {string} [p.min]  earliest allowed day (today)
  * @param {{date:string, shift:string}[]} p.value @param {(v) => void} p.onChange
  * @param {boolean} [p.invalid]
+ * @param {boolean} [p.compact]  stack the calendar above the day list (narrow panels)
+ * @param {string} [p.idPrefix]  keeps field ids unique when more than one picker is on the page
  */
-export default function TreatmentDaysPicker({ start, end, min, value = [], onChange, invalid = false }) {
+export default function TreatmentDaysPicker({ start, end, min, value = [], onChange, invalid = false, compact = false, idPrefix = '' }) {
+  const root = useRef(null);
   const [view, setView] = useState(() => monthStart(start || min || toIso(new Date())));
   useEffect(() => { if (start) setView(monthStart(start)); }, [start]);
   const [focus, setFocus] = useState('');
@@ -71,12 +74,12 @@ export default function TreatmentDaysPicker({ start, end, min, value = [], onCha
       const n = addDays(d, step);
       if (monthStart(n) !== shown && months.includes(monthStart(n))) setView(monthStart(n));
       setFocus(n);
-      setTimeout(() => document.querySelector(`[data-tday="${n}"]`)?.focus(), 0);
+      setTimeout(() => root.current?.querySelector(`[data-tday="${n}"]`)?.focus(), 0);
     } else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(d); }
   };
 
   return (
-    <div className={`tdp ${invalid ? 'invalid' : ''}`}>
+    <div ref={root} className={`tdp ${compact ? 'compact' : ''} ${invalid ? 'invalid' : ''}`}>
       <div className="tdp-cal">
         <div className="tdp-head">
           <button type="button" className="drp-nav" aria-label="Previous month" disabled={idx <= 0} onClick={() => setView(months[idx - 1])}><Icon name="back" /></button>
@@ -116,9 +119,9 @@ export default function TreatmentDaysPicker({ start, end, min, value = [], onCha
         <ul className="tdp-days">
           {value.map((x) => (
             <li key={x.date}>
-              <label htmlFor={`tdp-${x.date}`}>{longDay(x.date)}</label>
+              <label htmlFor={`${idPrefix}tdp-${x.date}`}>{longDay(x.date)}</label>
               <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
-                <select id={`tdp-${x.date}`} className="select input" value={x.shift} onChange={(e) => setShift(x.date, e.target.value)}>
+                <select id={`${idPrefix}tdp-${x.date}`} className="select input" value={x.shift} onChange={(e) => setShift(x.date, e.target.value)}>
                   {Object.keys(SHIFTS).map((s) => <option key={s} value={s}>{shiftLabel(s)}</option>)}
                 </select>
                 <button type="button" className="tdp-x" aria-label={`Remove ${longDay(x.date)}`} onClick={() => toggle(x.date)}><Icon name="x" /></button>

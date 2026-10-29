@@ -12,6 +12,8 @@ export const config = Object.freeze({
   port: Number(env.PORT || 4000),
   appBaseUrl: env.APP_BASE_URL || 'http://localhost:5173',
   timeZone: env.APP_TIME_ZONE || 'Asia/Riyadh',
+  // The portal's address as users open it, e.g. https://holiday-dialysis.hospital.local — used in password-reset emails.
+  appUrl: (env.APP_URL || '').replace(/\/+$/, ''),
 
   db: {
     url: env.DATABASE_URL,

@@ -58,14 +58,18 @@ test('waiting for the requester counts towards days pending and SLA', () => {
   assert.deepEqual([info.days, info.overdue], [3, true]);
 });
 
-test('date options: 1–3 future ranges, last day after first, no repeats, sensible sessions', () => {
-  const ok = [{ start: '2026-11-15', end: '2026-11-22', sessions: 3 }, { start: '2026-12-01', end: '2026-12-08' }];
+test('date options: 1–3 future ranges, last day after first, no repeats, treatment days inside the option', () => {
+  const ok = [
+    { start: '2026-11-15', end: '2026-11-22', sessionPlan: [{ date: '2026-11-16', shift: 'Morning' }, { date: '2026-11-18', shift: 'Afternoon' }] },
+    { start: '2026-12-01', end: '2026-12-08', sessionPlan: [{ date: '2026-12-02', shift: 'Evening' }] },
+  ];
   assert.deepEqual(validateDateOptions(ok, TODAY), {});
   assert.match(validateDateOptions([], TODAY).options, /at least one/);
   assert.match(validateDateOptions([...ok, ...ok], TODAY).options, /at most 3/);
-  assert.match(validateDateOptions([{ start: '2026-11-15', end: '2026-11-15' }], TODAY).option1, /after the first/);
-  assert.match(validateDateOptions([{ start: '2026-10-01', end: '2026-10-05' }], TODAY).option1, /future/);
+  assert.match(validateDateOptions([{ start: '2026-11-15', end: '2026-11-15', sessionPlan: ok[0].sessionPlan }], TODAY).option1, /after the first/);
+  assert.match(validateDateOptions([{ start: '2026-10-01', end: '2026-10-05', sessionPlan: [{ date: '2026-10-02', shift: 'Morning' }] }], TODAY).option1, /future/);
   assert.match(validateDateOptions([ok[0], { ...ok[0] }], TODAY).option2, /repeats/);
-  assert.match(validateDateOptions([{ ...ok[0], sessions: 0 }], TODAY).option1, /between 1 and 60/);
+  assert.match(validateDateOptions([{ start: '2026-11-15', end: '2026-11-22', sessionPlan: [] }], TODAY).option1, /treatment days/);
+  assert.match(validateDateOptions([{ start: '2026-11-15', end: '2026-11-22', sessionPlan: [{ date: '2026-11-25', shift: 'Morning' }] }], TODAY).option1, /outside the travel dates/);
   assert.match(validateDateOptions([{ start: '2026-11-15' }], TODAY).option1, /first and last/);
 });

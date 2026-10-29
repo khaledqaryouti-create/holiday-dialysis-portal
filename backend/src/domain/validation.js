@@ -206,11 +206,12 @@ export function validateEmailSettings(s, { hasSavedPassword = false } = {}) {
 
 /**
  * Other dates proposed instead of the requested ones: 1–3 options, each a future range (last day after first),
- * no duplicates, optional sessions (1–60) and note. Returns field errors keyed by `options` / `option{n}`.
+ * no duplicates, treatment days inside that range, and an optional note.
+ * Returns field errors keyed by `options` / `option{n}`.
  */
 export function validateDateOptions(options, today, { max = 3 } = {}) {
   const e = {};
-  const list = Array.isArray(options) ? options.filter((o) => o && (o.start || o.end || o.sessions || o.note)) : [];
+  const list = Array.isArray(options) ? options.filter((o) => o && (o.start || o.end || o.sessions || o.note || (Array.isArray(o.sessionPlan) && o.sessionPlan.length))) : [];
   if (!list.length) return { options: 'Add at least one date option.' };
   if (list.length > max) return { options: `Propose at most ${max} options.` };
   const seen = new Set();
@@ -220,8 +221,11 @@ export function validateDateOptions(options, today, { max = 3 } = {}) {
     else if (o.end <= o.start) e[k] = 'The last session date must be after the first.';
     else if (today && o.start < today) e[k] = 'Dates must be in the future.';
     else if (seen.has(`${o.start}|${o.end}`)) e[k] = 'This option repeats another one.';
-    else if (o.sessions != null && o.sessions !== '' && !(Number.isInteger(Number(o.sessions)) && Number(o.sessions) >= 1 && Number(o.sessions) <= 60)) e[k] = 'Sessions must be a whole number between 1 and 60.';
     else if (o.note && String(o.note).length > 300) e[k] = 'Keep the note under 300 characters.';
+    else {
+      const pe = planError(normalizePlan(o.sessionPlan), o.start, o.end, today);
+      if (pe) e[k] = pe;
+    }
     seen.add(`${o.start}|${o.end}`);
   });
   return e;

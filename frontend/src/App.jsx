@@ -13,13 +13,16 @@ import PatientsPage from './pages/PatientsPage.jsx';
 import NotificationsPage from './pages/NotificationsPage.jsx';
 import HelpPage from './pages/HelpPage.jsx';
 import ChangePasswordPage from './pages/ChangePasswordPage.jsx';
+import { ResetPasswordPage } from './components/PasswordReset.jsx';
 import { useBranding } from './branding.jsx';
 import { BrandBlock, ContactMenu } from './components/Brand.jsx';
+import ClinicSwitcher from './components/ClinicSwitcher.jsx';
 import { t } from './terms.jsx';
 
 export default function App() {
   const { loading, user, options } = useAuth();
   if (loading) return <Loading />;
+  if (window.location.pathname === '/reset-password') return <ResetPasswordPage />; // link from the reset email
   if (!user) return <LoginPage />;
   if (user.mustChangePassword) return <ChangePasswordPage forced />;
   const h = roleHelpers(user);
@@ -58,6 +61,8 @@ function Layout() {
   ];
   const roleText = user.roles.map((r) => ROLE_LABELS[r]).join(', ');
   const clinicText = user.clinics.map((c) => c.name).join(', ');
+  // The clinic chosen at sign-in (the session is limited to it) — shown as a badge in the header.
+  const signedInClinic = user.clinics.length === 1 ? user.clinics[0].name : null;
   return (
     <>
       <header className={`top ${brand.enabled && (brand.logoUrl || brand.companyName) ? 'branded' : ''}`}>
@@ -74,13 +79,14 @@ function Layout() {
             ))}
           </nav>
           <div className="top-right">
+            <ClinicSwitcher />
             <ContactMenu b={brand} />
             <NavLink to="/notifications" className="icon-btn" aria-label={`Notifications, ${unread} unread`}>
               <Icon name="bell" size={20} />{unread > 0 && <span className="dot">{unread}</span>}
             </NavLink>
             <div className="who">
               <span className="av" title={`${user.name} — ${roleText}${clinicText ? ` · ${clinicText}` : ''}`}>{initials(user.name)}</span>
-              <span className="who-t"><b>{user.name}</b><small>{roleText}{clinicText ? ` · ${clinicText}` : ''}</small></span>
+              <span className="who-t"><b>{user.name}</b><small>{roleText}{clinicText && !signedInClinic ? ` · ${clinicText}` : ''}</small></span>
             </div>
             {user.hasLocalPassword && options?.local && <NavLink to="/account/password" className="btn sm on-dark ghost" style={{ textDecoration: 'none' }}>Password</NavLink>}
             <button className="btn sm on-dark ghost" onClick={logout}>{mode === 'dev' ? 'Switch user' : 'Sign out'}</button>

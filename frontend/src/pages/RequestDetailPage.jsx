@@ -13,7 +13,7 @@ import { DEST, DEST_LABELS, DOC_TYPES, REASON_MAX, MAX_DATE_OPTIONS } from '@dom
 import { validateConfirmedDates, validateReason, isEmail, validateFile, validateDateOptions } from '@domain/validation.js';
 import { fmtRange, fmtTS, daysBetween } from '../lib/format.js';
 import { t, destLabel } from '../terms.jsx';
-import { shortDay, shiftLabel } from '../components/TreatmentDaysPicker.jsx';
+import TreatmentDaysPicker, { shortDay, shiftLabel } from '../components/TreatmentDaysPicker.jsx';
 
 export default function RequestDetailPage() {
   const { id } = useParams();
@@ -344,7 +344,8 @@ function RecordPanel({ r, act, confirm, canPropose }) {
   const [reason, setReason] = useState('');
   const [file, setFile] = useState(null);
   const [err, setErr] = useState({});
-  const ready = outcome === 'Approved' ? start && end : outcome === 'Alternative' ? options.some((o) => o.start && o.end) : reason.trim().length >= 10;
+  const offered = options.filter((o) => o.start || o.end || o.note || o.sessionPlan?.length);
+  const ready = outcome === 'Approved' ? start && end : outcome === 'Alternative' ? offered.length > 0 && offered.every((o) => o.start && o.end && o.sessionPlan?.length) : reason.trim().length >= 10;
   const save = async () => {
     if (outcome === 'Alternative') {
       const oe = validateDateOptions(options, todayIso(), { max: MAX_DATE_OPTIONS });
@@ -415,7 +416,11 @@ function RecordPanel({ r, act, confirm, canPropose }) {
 }
 
 // ---------------------------------------------------------------- Other dates (instead of declining)
-const blankOption = () => ({ start: '', end: '', sessions: '', note: '' });
+const blankOption = () => ({ start: '', end: '', sessions: '', note: '', sessionPlan: [] });
+function OptionDays({ plan }) {
+  if (!plan?.length) return null;
+  return <ul className="plan-list">{plan.map((x) => <li key={x.date}>{shortDay(x.date)} — <b>{shiftLabel(x.shift)}</b></li>)}</ul>;
+}
 const OUTCOME_TEXT = { Open: 'Waiting for the requesting clinic', Accepted: 'Accepted', OtherDatesRequested: 'Other dates requested', Withdrawn: 'Request withdrawn' };
 
 /** Up to 3 date ranges with optional sessions and note. */
@@ -428,12 +433,12 @@ function DateOptionsEditor({ options, setOptions, err, minDate, reference }) {
           <div className="spread"><b className="small">Option {i + 1}</b>
             {options.length > 1 && <button type="button" className="textlink danger small" onClick={() => setOptions(options.filter((_, j) => j !== i))}>Remove</button>}</div>
           <DateRangePicker ariaLabel={`Option ${i + 1} dates`} placeholder="Choose first and last session" min={minDate} start={o.start} end={o.end}
-            reference={reference} invalid={!!err[`option${i + 1}`]} clearable={false}
-            onChange={(v) => setOptions(options.map((x, j) => (j === i ? { ...x, start: v.start, end: v.end } : x)))} />
-          <div className="two">
-            <input type="number" min="1" max="60" className="input" aria-label={`Option ${i + 1} sessions`} placeholder="Sessions (optional)" value={o.sessions} onChange={(e) => set(i, 'sessions', e.target.value)} />
-            <input className="input" maxLength={300} aria-label={`Option ${i + 1} note`} placeholder="Note, e.g. evening shift" value={o.note} onChange={(e) => set(i, 'note', e.target.value)} />
-          </div>
+            reference={reference} invalid={!!err[`option${i + 1}`] && !(o.start && o.end)} clearable={false}
+            onChange={(v) => setOptions(options.map((x, j) => (j === i ? { ...x, start: v.start, end: v.end, sessionPlan: (x.sessionPlan || []).filter((d) => d.date >= v.start && d.date <= v.end) } : x)))} />
+          {o.start && o.end
+            ? <TreatmentDaysPicker compact idPrefix={`opt${i}-`} start={o.start} end={o.end} min={minDate} value={o.sessionPlan || []} invalid={!!err[`option${i + 1}`]} onChange={(plan) => set(i, 'sessionPlan', plan)} />
+            : <p className="small muted" style={{ margin: '8px 0 0' }}>Choose the first and last day. The calendar of treatment days then appears here.</p>}
+          <input className="input" maxLength={300} aria-label={`Option ${i + 1} note`} placeholder="Note, e.g. evening shift" value={o.note} onChange={(e) => set(i, 'note', e.target.value)} />
           <FieldError msg={err[`option${i + 1}`]} />
         </div>
       ))}
@@ -483,7 +488,7 @@ function ProposalCard({ p }) {
       <ul className="opt-list">{p.options.map((o) => (
         <li key={o.id} className={p.acceptedOptionId === o.id ? 'on' : ''}>
           <span className="opt-no">{p.acceptedOptionId === o.id ? <Icon name="check" size={12} /> : o.no}</span>
-          <span><b>{fmtRange(o.start, o.end)}</b>{o.sessions ? <span className="muted"> · {o.sessions} sessions</span> : null}{o.note ? <span className="muted"> · {o.note}</span> : null}</span>
+          <span><b>{fmtRange(o.start, o.end)}</b>{o.sessionPlan?.length ? <span className="muted"> · {o.sessionPlan.length} sessions</span> : o.sessions ? <span className="muted"> · {o.sessions} sessions</span> : null}{o.note ? <span className="muted"> · {o.note}</span> : null}<OptionDays plan={o.sessionPlan} /></span>
         </li>))}</ul>
       {p.responseNote && p.outcome !== 'Open' && <p className="small muted" style={{ margin: '8px 0 0' }}>{p.respondedBy}: {p.responseNote}</p>}
     </div>
@@ -529,7 +534,7 @@ function AnswerProposalPanel({ r, act, confirm, canAskAgain, askBlocked }) {
             {p.options.map((o) => (
               <label key={o.id} className={`opt-pick ${choice === o.id ? 'on' : ''}`}>
                 <input type="radio" name="opt" checked={choice === o.id} onChange={() => { setChoice(o.id); setErr({}); }} />
-                <span><b>{fmtRange(o.start, o.end)}</b><small>{daysBetween(o.start, o.end)} days{o.sessions ? ` · ${o.sessions} sessions` : ''}{o.note ? ` · ${o.note}` : ''}</small></span>
+                <span><b>{fmtRange(o.start, o.end)}</b><small>{daysBetween(o.start, o.end)} days{o.sessionPlan?.length ? ` · ${o.sessionPlan.length} sessions` : o.sessions ? ` · ${o.sessions} sessions` : ''}{o.note ? ` · ${o.note}` : ''}</small><OptionDays plan={o.sessionPlan} /></span>
               </label>))}
             <FieldError msg={err.optionId} />
           </div>

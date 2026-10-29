@@ -8,6 +8,7 @@ import { ErrorBox, FieldError } from '../components/ui.jsx';
 import { hasContact, telHref } from '@domain/branding.js';
 import { useBranding } from '../branding.jsx';
 import LoginVisual from '../components/LoginVisual.jsx';
+import { ForgotPasswordPanel } from '../components/PasswordReset.jsx';
 
 /** The value Chrome actually put in the field, not only the value React last rendered. */
 function fieldValue(el) {
@@ -27,6 +28,7 @@ function MicrosoftLogo() {
 
 export default function LoginPage() {
   const { options = {}, passwordLogin } = useAuth();
+  const [forgot, setForgot] = useState(false);
   const brand = useBranding();
   const showContact = brand.enabled && brand.showContactOnLogin && hasContact(brand.contact);
   const [error, setError] = useState(() => {
@@ -156,7 +158,7 @@ export default function LoginPage() {
   // Chrome fills the user name without a React change event. Watch the field itself for a few seconds.
   useEffect(() => {
     const el = userNode;
-    if (!showPasswordForm || !el) return undefined;
+    if (!showPasswordForm || forgot || !el) return undefined;
     const read = () => {
       const value = fieldValue(el);
       if (value && usernameKey(value) !== usernameKey(usernameNow.current)) noteNow.current(value);
@@ -175,7 +177,7 @@ export default function LoginPage() {
       el.removeEventListener('input', read);
       el.removeEventListener('change', read);
     };
-  }, [showPasswordForm, userNode]);
+  }, [showPasswordForm, userNode, forgot]);
 
   function clinicLabel(c) {
     return `${c.name}${c.city && !c.name.includes(c.city) ? ` (${c.city})` : ''}`;
@@ -233,20 +235,23 @@ export default function LoginPage() {
 
       <section className="login2-form">
         <div className="lf">
-          <div>
-            <h2 className="lf-title">{brand.signInTitle || 'Sign in'}</h2>
-            <p className="lf-sub">{brand.signInSubtitle || `${brand.portalTitle} for authorised ${owner ? `${owner} ` : ''}staff.`}</p>
-          </div>
+          {!forgot && (
+            <div>
+              <h2 className="lf-title">{brand.signInTitle || 'Sign in'}</h2>
+              <p className="lf-sub">{brand.signInSubtitle || `${brand.portalTitle} for authorised ${owner ? `${owner} ` : ''}staff.`}</p>
+            </div>
+          )}
           <ErrorBox error={error} />
 
-          {options.microsoft && (
+          {options.microsoft && !forgot && (
             <a className="btn block lf-ms" href="/api/auth/microsoft/login" onClick={() => setBusy('ms')}>
               {busy === 'ms' ? <span className="spinner" /> : <MicrosoftLogo />}{options.microsoftLabel || 'Sign in with Microsoft'}
             </a>
           )}
-          {options.microsoft && showPasswordForm && <div className="lf-or"><span>or use your user name</span></div>}
+          {options.microsoft && showPasswordForm && !forgot && <div className="lf-or"><span>or use your user name</span></div>}
 
-          {showPasswordForm && (
+          {forgot && <ForgotPasswordPanel initialEmail={form.username} onBack={() => setForgot(false)} />}
+          {showPasswordForm && !forgot && (
             <form className="lf-form" onSubmit={submit} noValidate
               onFocus={() => { const value = document.getElementById('li-user')?.value ?? ''; if (value && usernameKey(value) !== usernameKey(form.username)) noteUsername(value); }}>
               <div className="f"><label htmlFor="li-user">User name</label>
@@ -271,7 +276,7 @@ export default function LoginPage() {
                     value={form.clinicId}
                     onChange={(e) => chooseClinic(e.target.value)}
                     disabled={clinicStatus !== 'ready' || !clinics.length}
-                    aria-describedby="li-clinic-help" aria-invalid={fieldErr.clinic ? true : undefined}>
+                    aria-invalid={fieldErr.clinic ? true : undefined}>
                     <option value="">
                       {!form.username.trim() ? 'Enter your user name first'
                         : clinicStatus === 'loading' ? 'Loading clinics…'
@@ -279,8 +284,9 @@ export default function LoginPage() {
                     </option>
                     {clinics.map((c) => <option key={c.id} value={c.id}>{clinicLabel(c)}</option>)}
                   </select></div>
-                <span id="li-clinic-help" className="lf-help">Only clinics assigned to this user name are listed. Coordination and IT staff can leave this empty.</span>
-                <FieldError msg={fieldErr.clinic} /></div>
+                <FieldError msg={fieldErr.clinic} />
+                {options.local && <button type="button" className="lf-link lf-forgot-link" onClick={() => setForgot(true)}>Forgot password?</button>}
+              </div>
               <button className="btn block lf-submit" type="submit" disabled={!!busy}>{busy === 'pw' ? <span className="spinner" /> : null}Sign in</button>
             </form>
           )}

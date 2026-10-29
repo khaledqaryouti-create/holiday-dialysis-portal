@@ -804,3 +804,44 @@ a.textlink{text-decoration:none}
 .plan-list{margin:0;padding-left:18px}
 .plan-list li{margin:2px 0}
 @media (max-width:760px){.tdp{grid-template-columns:1fr}.tdp-grid{grid-template-columns:repeat(7,minmax(34px,1fr))}}
+
+/* ---------- Header: clinic the user signed in with */
+.clinic-badge{display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;background:rgb(255 255 255/.12);border:1px solid rgb(255 255 255/.28);
+  color:#fff;font-size:.86rem;font-weight:650;white-space:nowrap;max-width:240px;flex:none}
+.clinic-badge > span{overflow:hidden;text-overflow:ellipsis}
+.clinic-badge svg{flex:none;opacity:.9}
+@media (max-width:1280px){.clinic-badge{max-width:170px}}
+@media (max-width:900px){.clinic-badge{padding:6px}.clinic-badge > span{display:none}}
+@media (max-width:1440px){.top-right{gap:8px}.clinic-badge{max-width:160px;padding:5px 10px}}
+
+/* ---------- Header: switch clinic */
+.clinic-switch{position:relative;flex:none}
+.clinic-badge.switchable{cursor:pointer;font:inherit;font-size:.86rem;font-weight:650}
+.clinic-badge.switchable:hover,.clinic-badge.switchable[aria-expanded="true"]{background:rgb(255 255 255/.22)}
+.clinic-badge.switchable:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.cs-pop{position:absolute;right:0;top:calc(100% + 8px);z-index:60;min-width:260px;max-width:340px;background:var(--surface);color:var(--fg);border:1px solid var(--line);
+  border-radius:var(--r);box-shadow:0 12px 32px rgb(0 0 0/.18);padding:6px;max-height:70vh;overflow:auto}
+.cs-h{font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--fg-3);padding:8px 10px 6px}
+.cs-item{display:flex;align-items:center;gap:8px;width:100%;border:0;background:none;font:inherit;color:inherit;text-align:left;padding:9px 10px;border-radius:8px;cursor:pointer}
+.cs-item:hover,.cs-item:focus-visible{background:var(--surface-2);outline:none}
+.cs-item.on{font-weight:700}
+.cs-check{width:16px;display:inline-flex;color:var(--good-fg)}
+.cs-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cs-foot{font-size:.76rem;color:var(--fg-3);padding:8px 10px 4px;border-top:1px solid var(--line);margin-top:4px}
+@media (max-width:900px){.clinic-badge.switchable > span{display:none}}
+
+/* ---------- Sign-in: forgot / reset password */
+.lf-link{display:inline-flex;align-items:center;gap:5px;background:none;border:0;padding:0;font:inherit;font-size:.86rem;font-weight:650;color:inherit;
+  text-decoration:underline;text-underline-offset:3px;cursor:pointer;opacity:.95;align-self:flex-start}
+.lf-link:hover{opacity:1;text-decoration-thickness:2px}
+.lf-link:focus-visible{outline:2px solid currentColor;outline-offset:3px;border-radius:2px}
+.lf-forgot-link{margin-top:8px;align-self:flex-end;display:flex;margin-left:auto}
+.lf-forgot{display:flex;flex-direction:column;gap:16px}
+.lf-sent{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:var(--r);background:rgb(255 255 255/.12);border:1px solid rgb(255 255 255/.28);line-height:1.45}
+.lf-sent svg{flex:none;margin-top:1px}
+.lf-sent.bad{background:rgb(255 255 255/.10);border-color:#f3b6ad}
+.lf-rules{list-style:none;margin:8px 0 0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:.8rem;opacity:.9}
+.lf-rules li{display:flex;align-items:center;gap:5px}
+.lf-rules li.ok{opacity:1;font-weight:650}
+.lf-rules li svg{flex:none}
+@media (max-width:520px){.lf-rules{grid-template-columns:1fr}}

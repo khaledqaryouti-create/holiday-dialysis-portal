@@ -21,7 +21,7 @@ import { audit } from './audit.js';
 import { currentFieldRules } from './formSettings.js';
 import { currentInputRules } from './validationSettings.js';
 import { queueForAction } from './integrations/engine.js';
-import { normalizePlan } from '../domain/sessionPlan.js';
+import { normalizePlan, planText } from '../domain/sessionPlan.js';
 import { notify, flushEmails, getActiveTemplate } from './notifications.js';
 import { userIdsWithRole } from './users.js';
 import { storage, storageKey } from './storage.js';
@@ -833,17 +833,20 @@ export async function recordProviderResponse(user, id, body, file, ip) {
 function parseOptions(raw) {
   let list = raw;
   if (typeof raw === 'string') { try { list = JSON.parse(raw); } catch { list = []; } }
-  return (Array.isArray(list) ? list : []).slice(0, 10).map((o) => ({
-    start: String(o?.start ?? '').trim(), end: String(o?.end ?? '').trim(),
-    sessions: o?.sessions === '' || o?.sessions == null ? null : Number(o.sessions), note: cleanStr(o?.note, 300),
-  })).filter((o) => o.start || o.end || o.sessions || o.note);
+  return (Array.isArray(list) ? list : []).slice(0, 10).map((o) => {
+    const sessionPlan = normalizePlan(o?.sessionPlan);
+    return {
+      start: String(o?.start ?? '').trim(), end: String(o?.end ?? '').trim(),
+      sessions: sessionPlan.length || null, note: cleanStr(o?.note, 300), sessionPlan,
+    };
+  }).filter((o) => o.start || o.end || o.sessions || o.note || o.sessionPlan.length);
 }
 
 async function loadProposals(requestId) {
   const { rows } = await query(
     `SELECT p.id, p.round_no, p.proposal_source, p.message, p.reply_document_id, p.proposed_at, p.outcome, p.accepted_option_id,
             p.response_note, p.responded_at, pu.display_name AS proposed_by, ru.display_name AS responded_by,
-            coalesce(json_agg(json_build_object('id', o.id, 'no', o.option_no, 'start', o.start_date, 'end', o.end_date, 'sessions', o.sessions, 'note', o.note)
+            coalesce(json_agg(json_build_object('id', o.id, 'no', o.option_no, 'start', o.start_date, 'end', o.end_date, 'sessions', o.sessions, 'note', o.note, 'sessionPlan', o.session_plan)
                      ORDER BY o.option_no) FILTER (WHERE o.id IS NOT NULL), '[]') AS options
        FROM request_date_proposal p
        JOIN portal_user pu ON pu.id = p.proposed_by_user_id
@@ -855,11 +858,11 @@ async function loadProposals(requestId) {
     proposedAt: x.proposed_at, proposedBy: x.proposed_by, outcome: x.outcome, acceptedOptionId: x.accepted_option_id,
     responseNote: x.response_note, respondedAt: x.responded_at, respondedBy: x.responded_by,
     options: (typeof x.options === 'string' ? JSON.parse(x.options) : x.options)
-      .map((o) => ({ ...o, start: String(o.start).slice(0, 10), end: String(o.end).slice(0, 10) })),
+      .map((o) => ({ ...o, start: String(o.start).slice(0, 10), end: String(o.end).slice(0, 10), sessionPlan: normalizePlan(o.sessionPlan) })),
   }));
 }
 
-const optionText = (o) => `${fmtRange(o.start, o.end)}${o.sessions ? ` (${o.sessions} sessions)` : ''}`;
+const optionText = (o) => `${fmtRange(o.start, o.end)}${o.sessions ? ` (${o.sessions} sessions)` : ''}${o.sessionPlan?.length ? `: ${planText(o.sessionPlan)}` : ''}`;
 
 /** Save a proposal + options, move the request to "Other dates proposed" and tell the requester. */
 async function createProposal(ctx, { source, options, message, replyDocId = null, decider }) {
@@ -871,8 +874,10 @@ async function createProposal(ctx, { source, options, message, replyDocId = null
   const pid = rows[0].id;
   for (let i = 0; i < options.length; i++) {
     const o = options[i];
-    await c.query('INSERT INTO request_date_option (proposal_id, option_no, start_date, end_date, sessions, note) VALUES ($1, $2, $3, $4, $5, $6)',
-      [pid, i + 1, o.start, o.end, o.sessions ?? null, o.note ?? null]);
+    await c.query(
+      `INSERT INTO request_date_option (proposal_id, option_no, start_date, end_date, sessions, note, session_plan)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
+      [pid, i + 1, o.start, o.end, o.sessions ?? null, o.note ?? null, JSON.stringify(o.sessionPlan || [])]);
   }
   const action = source === 'ExternalProvider' ? ACTIONS.RECORD_PROVIDER_ALTERNATIVE : ACTIONS.PROPOSE_DATES;
   const list = options.map((o, i) => `Option ${i + 1}: ${optionText(o)}${o.note ? ` – ${o.note}` : ''}`).join('\n');
@@ -912,12 +917,13 @@ export async function acceptProposedDates(user, id, body = {}, file = null, ip =
   await runAction(user, id, ACTIONS.ACCEPT_PROPOSED_DATES, body.rowVersion, async (ctx) => {
     const { c, r, cleanup } = ctx;
     const prop = await openProposal(c, r.id);
-    const { rows: opts } = await c.query('SELECT id, option_no, start_date, end_date, sessions FROM request_date_option WHERE proposal_id = $1 AND id = $2',
+    const { rows: opts } = await c.query('SELECT id, option_no, start_date, end_date, sessions, session_plan FROM request_date_option WHERE proposal_id = $1 AND id = $2',
       [prop.id, isUuid(body.optionId) ? body.optionId : null]);
     const o = opts[0];
     if (!o) throw validationFailed({ optionId: 'Choose one of the proposed options.' });
     const start = String(o.start_date).slice(0, 10);
     const end = String(o.end_date).slice(0, 10);
+    const plan = normalizePlan(o.session_plan);
     if (start < ctx.today) throw validationFailed({ optionId: 'This option has already started. Ask for other dates instead.' });
     const confirmed = body.approvalsConfirmed === true || body.approvalsConfirmed === 'true';
     if (!confirmed && !file) {
@@ -938,14 +944,18 @@ export async function acceptProposedDates(user, id, body = {}, file = null, ip =
     await c.query(
       `UPDATE request_date_proposal SET outcome = 'Accepted', accepted_option_id = $2, response_note = $3, responded_by_user_id = $4, responded_at = now() WHERE id = $1`,
       [prop.id, o.id, file ? 'Updated MOH approval attached.' : 'Requester confirmed the approvals cover the new dates.', user.id]);
+    const sessions = plan.length || o.sessions;
     await c.query(
-      'UPDATE holiday_dialysis_request SET travel_start_date = $2, travel_end_date = $3, sessions_required = coalesce($4, sessions_required) WHERE id = $1',
-      [r.id, start, end, o.sessions]);
-    Object.assign(r, { travelStart: start, travelEnd: end, sessionsRequired: o.sessions ?? r.sessionsRequired });
+      `UPDATE holiday_dialysis_request SET travel_start_date = $2, travel_end_date = $3,
+              sessions_required = coalesce($4, sessions_required),
+              session_plan = CASE WHEN jsonb_array_length($5::jsonb) = 0 THEN session_plan ELSE $5::jsonb END
+        WHERE id = $1`,
+      [r.id, start, end, sessions, JSON.stringify(plan)]);
+    Object.assign(r, { travelStart: start, travelEnd: end, sessionsRequired: sessions ?? r.sessionsRequired, ...(plan.length ? { sessionPlan: plan } : {}) });
     await recordDecision(c, r, user, { type: 'Approved', source: prop.proposal_source, start, end, notes: `Proposed option ${o.option_no} accepted by the requesting clinic.` });
     await transition(ctx, ACTIONS.ACCEPT_PROPOSED_DATES, {
       title: 'Proposed dates accepted',
-      note: `Option ${o.option_no}: ${optionText({ start, end, sessions: o.sessions })}. Travel dates changed from ${before}.${file ? ' Updated MOH approval attached.' : ''}`,
+      note: `Option ${o.option_no}: ${optionText({ start, end, sessions, sessionPlan: plan })}. Travel dates changed from ${before}.${file ? ' Updated MOH approval attached.' : ''}`,
       set: { confirmed_at: NOW },
     });
     const values = mergeValues({ ...r, decision: { confirmedStart: start, confirmedEnd: end } });

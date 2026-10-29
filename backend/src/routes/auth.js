@@ -2,12 +2,13 @@ import { Router } from 'express';
 import { config } from '../config.js';
 import { ah, notFound, badRequest, AppError, unauthorized, validationFailed } from '../lib/errors.js';
 import { resolveSignInClinic } from '../domain/auth.js';
-import { issueSession, clearSession } from '../middleware/auth.js';
+import { issueSession, clearSession, requireAuth } from '../middleware/auth.js';
 import { clinicsForSignIn, listUsers, loadUser, matchPassword, touchSignIn } from '../services/users.js';
 import { completePasswordLink, inspectPasswordLink } from '../services/admin.js';
 import { unreadCount } from '../services/notifications.js';
 import { audit } from '../services/audit.js';
 import * as signin from '../services/authentication.js';
+import * as reset from '../services/passwordReset.js';
 
 export const authRouter = Router();
 
@@ -27,23 +28,39 @@ authRouter.post('/logout', (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------------------------------------------------------------- forgot password (portal passwords)
+authRouter.post('/forgot-password', ah(async (req, res) => {
+  await reset.requestReset(req, req.body?.email);
+  res.json({ ok: true, message: `If this email belongs to an account with a portal password, we've sent a link to reset it. The link expires in ${reset.RESET_MINUTES} minutes. Check your inbox (and junk folder).` });
+}));
+authRouter.post('/reset-password/check', ah(async (req, res) => res.json(await reset.checkToken(req.body?.token))));
+authRouter.post('/reset-password', ah(async (req, res) => res.json(await reset.completeReset(req, req.body?.token, req.body?.password))));
+
+/** Switch the clinic this session works for (header clinic switcher). Only clinics the person is assigned to;
+ *  the session keeps its sign-in method and expiry time. */
+authRouter.post('/switch-clinic', requireAuth, ah(async (req, res) => {
+  const full = await loadUser(req.user.id);
+  const clinicId = String(req.body?.clinicId || '');
+  const target = full.clinics.find((c) => c.id === clinicId);
+  if (!target) throw new AppError(403, 'NOT_ASSIGNED', 'You aren’t assigned to this clinic.');
+  const from = req.user.clinics.length === 1 ? req.user.clinics[0].name : 'all clinics';
+  issueSession(res, req.user.id, req.signInMethod, clinicId, req.sessionExp);
+  await audit(null, { user: req.user, action: 'ClinicSwitched', entityType: 'User', entityId: req.user.email, detail: { from, to: target.name }, ip: req.ip });
+  res.json({ ok: true, clinic: target });
+}));
+
 /** Finish sign-in for any method: refuse users with no role, set the session cookie, audit. */
 async function completeSignIn(req, res, userId, method, clinicChoice) {
   const user = await loadUser(userId);
   if (!user || user.status !== 'Active') throw new AppError(403, 'ACCOUNT_INACTIVE', 'This account is deactivated. Contact IT.');
   if (!user.roles.length) throw new AppError(403, 'NO_ACCESS', 'Your account has no role in the portal yet. Ask IT to assign one.');
+  user.accessibleClinics = user.clinics;
   let clinicId = null;
   if (clinicChoice !== undefined) { // user name + password sign-in: the Clinic field
     const r = resolveSignInClinic(user.clinicIds, clinicChoice);
     if (r.error) throw validationFailed({ clinic: r.error }, r.error);
     clinicId = r.clinicId;
-    if (clinicId) {
-      const clinic = user.clinics.find((c) => c.id === clinicId);
-      user.clinicIds = [clinicId];
-      user.clinics = clinic ? [clinic] : [];
-      user.activeClinicId = clinicId;
-      user.loginClinic = clinic ? { id: clinic.id, name: clinic.name } : null;
-    }
+    if (clinicId) { user.clinicIds = [clinicId]; user.clinics = user.clinics.filter((c) => c.id === clinicId); user.activeClinicId = clinicId; }
   }
   issueSession(res, user.id, method, clinicId);
   await touchSignIn(user.id, method);

@@ -3,7 +3,7 @@ import { verifyPassword } from '../lib/passwords.js';
 
 const USER_SQL = `
   SELECT u.id, u.email, u.display_name AS name, u.account_status AS status, u.last_sign_in_at,
-         u.must_change_password, (u.password_hash IS NOT NULL) AS has_local_password, u.last_sign_in_method,
+         u.must_change_password, (u.password_hash IS NOT NULL) AS has_local_password, u.last_sign_in_method, u.password_reset_at,
          coalesce(array_agg(DISTINCT ur.role_code) FILTER (WHERE ur.role_code IS NOT NULL), '{}')::text[] AS roles,
          coalesce(array_agg(DISTINCT s.facility_id::text) FILTER (WHERE s.facility_id IS NOT NULL), '{}')::text[] AS clinic_ids,
          coalesce(json_agg(DISTINCT jsonb_build_object('id', f.id, 'name', f.facility_name)) FILTER (WHERE f.id IS NOT NULL), '[]') AS clinics
@@ -17,6 +17,7 @@ const USER_SQL = `
 const mapUser = (r) => r && ({
   id: r.id, email: r.email, name: r.name, status: r.status, lastSignInAt: r.last_sign_in_at,
   roles: r.roles, clinicIds: r.clinic_ids, clinics: r.clinics,
+  passwordResetAt: r.password_reset_at || null,
   mustChangePassword: !!r.must_change_password, hasLocalPassword: !!r.has_local_password, lastSignInMethod: r.last_sign_in_method ?? null,
 });
 
