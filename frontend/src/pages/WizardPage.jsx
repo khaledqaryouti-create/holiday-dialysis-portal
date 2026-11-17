@@ -223,19 +223,19 @@ export default function WizardPage() {
 }
 
 // ---------------------------------------------------------------- Step 1
-function StepPatient({ d, user, errs, upd, updPatient, rules, vr }) {
-  const idRule = vr[d.patient.identifierType === 'Passport' ? 'passport' : 'nationalId'];
-  const lenText = (r, unit) => (r.min === r.max ? `${r.min} ${unit}` : `${r.min}–${r.max} ${unit}`);
-  const mark = (k) => (isRequired(rules, k, d) ? <span className="req">*</span> : <span className="opt-mark">Optional</span>);
-  const ph = (k, text) => (isRequired(rules, k, d) ? text : `Optional${text ? `, ${text}` : ''}`);
+function usePatientLookup(updPatient) {
   const [sugg, setSugg] = useState([]);
-  const [open, setOpen] = useState('');   // which box the suggestions show under: 'name' | 'mrn' | ''
-  const locked = !!d.patient.id;
+  const [open, setOpen] = useState('');
   const timer = useRef(null);
   // Admin Settings → Integrations: if the MRN isn't registered, ask the EMR (only when a lookup connection is switched on)
   const [emrOn, setEmrOn] = useState(false);
-  const [emr, setEmr] = useState(null); // { mrn, loading, list, error, importing }
+  const [emr, setEmr] = useState(null);
   useEffect(() => { api.get('/reference/integration-features').then((f) => setEmrOn(!!f?.mrnLookup)).catch(() => {}); }, []);
+  const lookupEmr = (mrn) => {
+    setEmr({ mrn, loading: true });
+    api.get(`/patients/emr-lookup${qs({ mrn })}`).then((list) => setEmr((e) => (e?.mrn === mrn ? { mrn, list } : e)))
+      .catch((x) => setEmr((e) => (e?.mrn === mrn ? { mrn, error: x.message } : e)));
+  };
   const search = (q, where) => {
     clearTimeout(timer.current);
     setEmr(null);
@@ -243,20 +243,16 @@ function StepPatient({ d, user, errs, upd, updPatient, rules, vr }) {
     timer.current = setTimeout(() => api.get(`/reference/patients${qs({ q })}`).then((r) => {
       setSugg(r); setOpen(where);
       const mrn = q.replace(/\s+/g, '');
-      if (!r.length && where === 'mrn' && emrOn && mrn.length >= 3) {
-        setEmr({ mrn, loading: true });
-        api.get(`/patients/emr-lookup${qs({ mrn })}`).then((list) => setEmr((e) => (e?.mrn === mrn ? { mrn, list } : e)))
-          .catch((x) => setEmr((e) => (e?.mrn === mrn ? { mrn, error: x.message } : e)));
-      }
+      if (!r.length && where === 'mrn' && emrOn && mrn.length >= 3) lookupEmr(mrn);
     }).catch(() => {}), 250);
   };
+  const choose = (p) => { updPatient({ id: p.id, name: p.name, mrn: p.mrn, identifierType: p.identifierType, identifier: '', identifierMasked: p.identifierMasked }); setOpen(''); };
   const useEmr = async (p) => {
     setEmr((e) => ({ ...e, importing: p.mrn }));
     try { choose(await api.post('/patients/emr-import', { connectionId: p.connectionId, mrn: p.mrn })); setEmr(null); }
     catch (x) { setEmr((e) => ({ ...e, importing: null, error: x.message })); }
   };
-  const choose = (p) => { updPatient({ id: p.id, name: p.name, mrn: p.mrn, identifierType: p.identifierType, identifier: '', identifierMasked: p.identifierMasked }); setOpen(''); };
-  const list = (where, typed) => open === where && !locked && typed.trim().length >= 2 && (
+  const suggestions = (where, typed, locked) => open === where && !locked && typed.trim().length >= 2 && (
     <div className="list">
       {sugg.length ? sugg.map((p) => (
         <button key={p.id} type="button" className="opt" onMouseDown={(e) => e.preventDefault()} onClick={() => choose(p)}>
@@ -273,6 +269,16 @@ function StepPatient({ d, user, errs, upd, updPatient, rules, vr }) {
         : <div className="opt muted" style={{ cursor: 'default' }}>{emr?.error ? <>The EMR lookup didn’t work: {emr.error}<br /></> : emr?.list ? <>Not found in the EMR either.<br /></> : null}No registered patient matches. <Link className="textlink" to="/patients?new=1">Register the patient</Link> or type the details manually.</div>}
     </div>
   );
+  return { search, suggestions, setOpen, sugg };
+}
+
+function StepPatient({ d, user, errs, upd, updPatient, rules, vr }) {
+  const idRule = vr[d.patient.identifierType === 'Passport' ? 'passport' : 'nationalId'];
+  const lenText = (r, unit) => (r.min === r.max ? `${r.min} ${unit}` : `${r.min}–${r.max} ${unit}`);
+  const mark = (k) => (isRequired(rules, k, d) ? <span className="req">*</span> : <span className="opt-mark">Optional</span>);
+  const ph = (k, text) => (isRequired(rules, k, d) ? text : `Optional${text ? `, ${text}` : ''}`);
+  const locked = !!d.patient.id;
+  const { search, suggestions, setOpen, sugg } = usePatientLookup(updPatient);
   return (
     <div className="form-grid">
       <label className="lbl" htmlFor="w-mrn">{t('field.mrn')} <span className="req">*</span></label>
@@ -282,7 +288,7 @@ function StepPatient({ d, user, errs, upd, updPatient, rules, vr }) {
             placeholder="Type 2+ digits of the MRN to search your clinic’s patients"
             onChange={(e) => { updPatient({ mrn: e.target.value }); search(e.target.value, 'mrn'); }}
             onFocus={() => sugg.length && d.patient.mrn.trim().length >= 2 && setOpen('mrn')} onBlur={() => setTimeout(() => setOpen(''), 150)} />
-          {list('mrn', d.patient.mrn)}
+          {suggestions('mrn', d.patient.mrn, locked)}
         </div>
         {locked
           ? <div className="row" style={{ marginTop: 6, gap: 10 }}><span className="src-note"><Icon name="info" />Selected from the patient list — read-only</span>
@@ -298,7 +304,7 @@ function StepPatient({ d, user, errs, upd, updPatient, rules, vr }) {
             placeholder="Or type 2+ letters of the name to search"
             onChange={(e) => { updPatient({ name: e.target.value }); search(e.target.value, 'name'); }}
             onFocus={() => sugg.length && d.patient.name.trim().length >= 2 && setOpen('name')} onBlur={() => setTimeout(() => setOpen(''), 150)} />
-          {list('name', d.patient.name)}
+          {suggestions('name', d.patient.name, locked)}
         </div>
         <FieldError msg={errs.patientName} />
       </div>
@@ -361,6 +367,20 @@ function StepPatient({ d, user, errs, upd, updPatient, rules, vr }) {
 }
 
 // ---------------------------------------------------------------- Step 2
+function TravelDates({ d, errs, upd, today }) {
+  return (
+    <>
+      <label className="lbl" htmlFor="w-dates">Travel dates <span className="req">*</span></label>
+      <div style={{ maxWidth: 380 }}>
+        <DateRangePicker id="w-dates" ariaLabel="Travel dates" placeholder="Choose travel start and end" min={today}
+          start={d.travelStart || ''} end={d.travelEnd || ''} invalid={!!(errs.travelStart || errs.travelEnd)}
+          onChange={(v) => upd({ travelStart: v.start, travelEnd: v.end, sessionPlan: d.sessionPlan.filter((x) => x.date >= v.start && x.date <= v.end) })} />
+        <div className="help">Click the arrival day, then the departure day.</div>
+        <FieldError msg={errs.travelStart} /><FieldError msg={errs.travelEnd} /></div>
+    </>
+  );
+}
+
 function StepDestination({ d, errs, upd, today, otherFacility, setOtherFacility }) {
   const intl = d.destinationType === DEST.INTERNATIONAL;
   const [cities, setCities] = useState([]);
@@ -423,13 +443,7 @@ function StepDestination({ d, errs, upd, today, otherFacility, setOtherFacility 
             <div className="help">Unlisted facilities are reviewed and added to the facility list by IT.</div>
           </>}
         </div>
-        <label className="lbl" htmlFor="w-dates">Travel dates <span className="req">*</span></label>
-        <div style={{ maxWidth: 380 }}>
-          <DateRangePicker id="w-dates" ariaLabel="Travel dates" placeholder="Choose travel start and end" min={today}
-            start={d.travelStart || ''} end={d.travelEnd || ''} invalid={!!(errs.travelStart || errs.travelEnd)}
-            onChange={(v) => upd({ travelStart: v.start, travelEnd: v.end, sessionPlan: d.sessionPlan.filter((x) => x.date >= v.start && x.date <= v.end) })} />
-          <div className="help">Click the arrival day, then the departure day.</div>
-          <FieldError msg={errs.travelStart} /><FieldError msg={errs.travelEnd} /></div>
+        <TravelDates d={d} errs={errs} upd={upd} today={today} />
         <span className="lbl">{t('field.treatmentDays')} <span className="req">*</span></span>
         <div>
           <TreatmentDaysPicker start={d.travelStart} end={d.travelEnd} min={today} value={d.sessionPlan} invalid={!!errs.sessionPlan}
