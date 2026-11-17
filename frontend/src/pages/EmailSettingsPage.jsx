@@ -90,91 +90,7 @@ export default function EmailSettingsPage() {
         <Icon name={d.mode === 'settings' ? 'checkc' : 'alert'} /><span>{mode.text}{d.mode !== 'settings' && <> Fallback in use: <b>{d.envFallback}</b>.</>}</span>
       </div>
 
-      <div className="card pad stack" style={{ gap: 20 }}>
-        <label className="switch" style={{ fontWeight: 600 }}>
-          <input type="checkbox" checked={f.enabled} onChange={set('enabled')} /> Send portal emails through this SMTP server
-        </label>
-
-        <div>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>Server</div>
-          <div className="row" style={{ gap: 6, marginBottom: 12 }}><span className="small muted">Quick fill:</span>
-            {PRESETS.map((p) => <button key={p.label} className="btn sm" onClick={() => applyPreset(p)}>{p.label}</button>)}</div>
-          <div className="form-grid">
-            <label className="lbl" htmlFor="smtp-host">SMTP host <span className="req">*</span></label>
-            <div><input id="smtp-host" className={`input ${err.host ? 'err' : ''}`} value={f.host} onChange={set('host')} placeholder="smtp.yourcompany.com" autoComplete="off" /><FieldError msg={err.host} /></div>
-
-            <label className="lbl" htmlFor="smtp-sec">Security <span className="req">*</span></label>
-            <div>
-              <select id="smtp-sec" className="select input" value={f.security} onChange={changeSecurity} style={{ maxWidth: 320 }}>
-                {Object.entries(SMTP_SECURITY).map(([k, v]) => <option key={k} value={k}>{v.label} — port {v.defaultPort}</option>)}
-              </select>
-              <div className="help">{f.security === 'ssl' ? 'Encrypted from the first byte (SMTPS). Usually port 465.' : f.security === 'starttls' ? 'Connects, then upgrades to TLS; refuses to continue without it. Usually port 587 (Microsoft 365).' : 'No encryption. Only for an internal relay on a trusted network.'}</div>
-              {f.security === 'none' && f.authRequired && <div className="ferr">Your password would be sent unencrypted. Use SSL/TLS or STARTTLS.</div>}
-              <FieldError msg={err.security} />
-            </div>
-
-            <label className="lbl" htmlFor="smtp-port">Port <span className="req">*</span></label>
-            <div><input id="smtp-port" type="number" min="1" max="65535" className={`input ${err.port ? 'err' : ''}`} style={{ maxWidth: 140 }} value={f.port} onChange={set('port')} /><FieldError msg={err.port} /></div>
-
-            <span className="lbl">Sign-in</span>
-            <div><label className="check-row"><input type="checkbox" checked={f.authRequired} onChange={set('authRequired')} /> Server requires a user name and password</label></div>
-
-            {f.authRequired && <>
-              <label className="lbl" htmlFor="smtp-user">User name <span className="req">*</span></label>
-              <div><input id="smtp-user" className={`input ${err.username ? 'err' : ''}`} value={f.username} onChange={set('username')} placeholder="holiday.dialysis@yourcompany.com" autoComplete="off" /><FieldError msg={err.username} /></div>
-
-              <label className="lbl" htmlFor="smtp-pw">Password {!hasSaved && <span className="req">*</span>}</label>
-              <div>
-                <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
-                  <input id="smtp-pw" type={showPw ? 'text' : 'password'} className={`input ${err.password ? 'err' : ''}`} value={f.password} onChange={set('password')}
-                    placeholder={hasSaved ? '•••••••• saved — leave blank to keep' : 'Enter the SMTP password'} autoComplete="new-password" />
-                  <button type="button" className="btn sm" onClick={() => setShowPw(!showPw)} aria-label={showPw ? 'Hide password' : 'Show password'}><Icon name="eye" /></button>
-                </div>
-                <div className="help">Stored encrypted. It is never shown again or sent back to the browser.
-                  {d.hasPassword && !f.clearPassword && <> <button type="button" className="linkish" onClick={() => setF({ ...f, password: '', clearPassword: true })}>Remove saved password</button></>}
-                  {f.clearPassword && <> The saved password will be removed when you save. <button type="button" className="linkish" onClick={() => setF({ ...f, clearPassword: false })}>Undo</button></>}
-                </div>
-                <FieldError msg={err.password} />
-              </div>
-            </>}
-          </div>
-        </div>
-
-        <div>
-          <div className="eyebrow" style={{ marginBottom: 10 }}>Sender identity</div>
-          <div className="form-grid">
-            <label className="lbl" htmlFor="smtp-fromname">Sender name</label>
-            <div><input id="smtp-fromname" className={`input ${err.fromName ? 'err' : ''}`} value={f.fromName} onChange={set('fromName')} placeholder="Holiday Dialysis Coordination" /><FieldError msg={err.fromName} /></div>
-            <label className="lbl" htmlFor="smtp-from">Sender email <span className="req">*</span></label>
-            <div><input id="smtp-from" type="email" className={`input ${err.fromEmail ? 'err' : ''}`} value={f.fromEmail} onChange={set('fromEmail')} placeholder="holiday.dialysis@yourcompany.com" />
-              <div className="help">The SMTP account must be allowed to send as this address (Microsoft 365: “Send As” permission).</div><FieldError msg={err.fromEmail} /></div>
-            <label className="lbl" htmlFor="smtp-reply">Reply-to</label>
-            <div><input id="smtp-reply" type="email" className={`input ${err.replyTo ? 'err' : ''}`} value={f.replyTo} onChange={set('replyTo')} placeholder="Optional — e.g. the coordination team mailbox" />
-              <div className="help">Where replies go — useful so provider replies reach the coordination team.</div><FieldError msg={err.replyTo} /></div>
-            <span className="lbl">Preview</span>
-            <div className="recip"><span className="muted small">Emails will show as</span><b>{f.fromName ? `${f.fromName} <${f.fromEmail || 'sender@…'}>` : f.fromEmail || '—'}</b>{f.replyTo && <span className="muted">Reply-to: {f.replyTo}</span>}</div>
-          </div>
-        </div>
-
-        <details>
-          <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Advanced</summary>
-          <div className="form-grid" style={{ marginTop: 14 }}>
-            <label className="lbl" htmlFor="smtp-timeout">Timeout (seconds)</label>
-            <div><input id="smtp-timeout" type="number" min="5" max="120" className={`input ${err.timeoutSeconds ? 'err' : ''}`} style={{ maxWidth: 120 }} value={f.timeoutSeconds} onChange={set('timeoutSeconds')} /><FieldError msg={err.timeoutSeconds} /></div>
-            <span className="lbl">Certificates</span>
-            <div><label className="check-row"><input type="checkbox" checked={f.allowSelfSigned} onChange={set('allowSelfSigned')} /> Allow self-signed / untrusted certificates</label>
-              <div className="help">Only for an internal server with its own certificate. Turning this on weakens protection against interception.</div></div>
-          </div>
-        </details>
-
-        <div className="spread" style={{ borderTop: '1px solid var(--line)', paddingTop: 16 }}>
-          <span className="small muted">{d.updatedBy ? `Last saved by ${d.updatedBy}, ${fmtTS(d.updatedAt)}` : 'Not saved yet'}</span>
-          <div className="row">
-            <button className="btn" onClick={() => run('connect')} disabled={!!busy}>{busy === 'connect' ? <span className="spinner" /> : <Icon name="shield" />}Test connection</button>
-            <button className="btn primary" onClick={save} disabled={!!busy}>{busy === 'save' ? <span className="spinner" /> : <Icon name="save" />}Save settings</button>
-          </div>
-        </div>
-      </div>
+      <SmtpServerForm f={f} set={set} err={err} applyPreset={applyPreset} changeSecurity={changeSecurity} hasSaved={hasSaved} showPw={showPw} setShowPw={setShowPw} setF={setF} d={d} busy={busy} run={run} save={save} />
 
       <div className="card pad stack" style={{ gap: 12, marginTop: 16 }}>
         <h3>Send a test email</h3>
@@ -184,17 +100,115 @@ export default function EmailSettingsPage() {
           <button className="btn brand" onClick={() => run('email')} disabled={!!busy}>{busy === 'email' ? <span className="spinner" /> : <Icon name="send" />}Send test email</button>
         </div>
         <FieldError msg={err.to} />
-        {result && (
-          <output className={`banner ${result.ok ? '' : 'bad'}`} style={{ margin: 0, ...(result.ok ? { background: 'var(--good-bg)' } : {}) }}>
-            <Icon name={result.ok ? 'checkc' : 'alert'} /><span>{result.message}{result.technical && <><br /><small className="muted mono">{result.technical}</small></>}</span>
-          </output>
-        )}
-        {!result && d.lastTest && (
-          <p className="small muted">Last test {fmtTS(d.lastTest.at)}: <span style={{ color: d.lastTest.ok ? 'var(--good-fg)' : 'var(--bad-fg)' }}>{d.lastTest.ok ? 'passed' : 'failed'}</span> — {d.lastTest.message}</p>
-        )}
+        <SmtpTestResult result={result} d={d} />
       </div>
 
       <EmailLog key={logKey} />
+    </>
+  );
+}
+
+function SmtpServerForm({ f, set, err, applyPreset, changeSecurity, hasSaved, showPw, setShowPw, setF, d, busy, run, save }) {
+  return (
+    <div className="card pad stack" style={{ gap: 20 }}>
+      <label className="switch" style={{ fontWeight: 600 }}>
+        <input type="checkbox" checked={f.enabled} onChange={set('enabled')} /> Send portal emails through this SMTP server
+      </label>
+
+      <div>
+        <div className="eyebrow" style={{ marginBottom: 10 }}>Server</div>
+        <div className="row" style={{ gap: 6, marginBottom: 12 }}><span className="small muted">Quick fill:</span>
+          {PRESETS.map((p) => <button key={p.label} className="btn sm" onClick={() => applyPreset(p)}>{p.label}</button>)}</div>
+        <div className="form-grid">
+          <label className="lbl" htmlFor="smtp-host">SMTP host <span className="req">*</span></label>
+          <div><input id="smtp-host" className={`input ${err.host ? 'err' : ''}`} value={f.host} onChange={set('host')} placeholder="smtp.yourcompany.com" autoComplete="off" /><FieldError msg={err.host} /></div>
+
+          <label className="lbl" htmlFor="smtp-sec">Security <span className="req">*</span></label>
+          <div>
+            <select id="smtp-sec" className="select input" value={f.security} onChange={changeSecurity} style={{ maxWidth: 320 }}>
+              {Object.entries(SMTP_SECURITY).map(([k, v]) => <option key={k} value={k}>{v.label} — port {v.defaultPort}</option>)}
+            </select>
+            <div className="help">{f.security === 'ssl' ? 'Encrypted from the first byte (SMTPS). Usually port 465.' : f.security === 'starttls' ? 'Connects, then upgrades to TLS; refuses to continue without it. Usually port 587 (Microsoft 365).' : 'No encryption. Only for an internal relay on a trusted network.'}</div>
+            {f.security === 'none' && f.authRequired && <div className="ferr">Your password would be sent unencrypted. Use SSL/TLS or STARTTLS.</div>}
+            <FieldError msg={err.security} />
+          </div>
+
+          <label className="lbl" htmlFor="smtp-port">Port <span className="req">*</span></label>
+          <div><input id="smtp-port" type="number" min="1" max="65535" className={`input ${err.port ? 'err' : ''}`} style={{ maxWidth: 140 }} value={f.port} onChange={set('port')} /><FieldError msg={err.port} /></div>
+
+          <span className="lbl">Sign-in</span>
+          <div><label className="check-row"><input type="checkbox" checked={f.authRequired} onChange={set('authRequired')} /> Server requires a user name and password</label></div>
+
+          {f.authRequired && <>
+            <label className="lbl" htmlFor="smtp-user">User name <span className="req">*</span></label>
+            <div><input id="smtp-user" className={`input ${err.username ? 'err' : ''}`} value={f.username} onChange={set('username')} placeholder="holiday.dialysis@yourcompany.com" autoComplete="off" /><FieldError msg={err.username} /></div>
+
+            <label className="lbl" htmlFor="smtp-pw">Password {!hasSaved && <span className="req">*</span>}</label>
+            <div>
+              <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
+                <input id="smtp-pw" type={showPw ? 'text' : 'password'} className={`input ${err.password ? 'err' : ''}`} value={f.password} onChange={set('password')}
+                  placeholder={hasSaved ? '•••••••• saved — leave blank to keep' : 'Enter the SMTP password'} autoComplete="new-password" />
+                <button type="button" className="btn sm" onClick={() => setShowPw(!showPw)} aria-label={showPw ? 'Hide password' : 'Show password'}><Icon name="eye" /></button>
+              </div>
+              <div className="help">Stored encrypted. It is never shown again or sent back to the browser.
+                {d.hasPassword && !f.clearPassword && <> <button type="button" className="linkish" onClick={() => setF({ ...f, password: '', clearPassword: true })}>Remove saved password</button></>}
+                {f.clearPassword && <> The saved password will be removed when you save. <button type="button" className="linkish" onClick={() => setF({ ...f, clearPassword: false })}>Undo</button></>}
+              </div>
+              <FieldError msg={err.password} />
+            </div>
+          </>}
+        </div>
+      </div>
+
+      <div>
+        <div className="eyebrow" style={{ marginBottom: 10 }}>Sender identity</div>
+        <div className="form-grid">
+          <label className="lbl" htmlFor="smtp-fromname">Sender name</label>
+          <div><input id="smtp-fromname" className={`input ${err.fromName ? 'err' : ''}`} value={f.fromName} onChange={set('fromName')} placeholder="Holiday Dialysis Coordination" /><FieldError msg={err.fromName} /></div>
+          <label className="lbl" htmlFor="smtp-from">Sender email <span className="req">*</span></label>
+          <div><input id="smtp-from" type="email" className={`input ${err.fromEmail ? 'err' : ''}`} value={f.fromEmail} onChange={set('fromEmail')} placeholder="holiday.dialysis@yourcompany.com" />
+            <div className="help">The SMTP account must be allowed to send as this address (Microsoft 365: “Send As” permission).</div><FieldError msg={err.fromEmail} /></div>
+          <label className="lbl" htmlFor="smtp-reply">Reply-to</label>
+          <div><input id="smtp-reply" type="email" className={`input ${err.replyTo ? 'err' : ''}`} value={f.replyTo} onChange={set('replyTo')} placeholder="Optional — e.g. the coordination team mailbox" />
+            <div className="help">Where replies go — useful so provider replies reach the coordination team.</div><FieldError msg={err.replyTo} /></div>
+          <span className="lbl">Preview</span>
+          <div className="recip"><span className="muted small">Emails will show as</span><b>{f.fromName ? `${f.fromName} <${f.fromEmail || 'sender@…'}>` : f.fromEmail || '—'}</b>{f.replyTo && <span className="muted">Reply-to: {f.replyTo}</span>}</div>
+        </div>
+      </div>
+
+      <details>
+        <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Advanced</summary>
+        <div className="form-grid" style={{ marginTop: 14 }}>
+          <label className="lbl" htmlFor="smtp-timeout">Timeout (seconds)</label>
+          <div><input id="smtp-timeout" type="number" min="5" max="120" className={`input ${err.timeoutSeconds ? 'err' : ''}`} style={{ maxWidth: 120 }} value={f.timeoutSeconds} onChange={set('timeoutSeconds')} /><FieldError msg={err.timeoutSeconds} /></div>
+          <span className="lbl">Certificates</span>
+          <div><label className="check-row"><input type="checkbox" checked={f.allowSelfSigned} onChange={set('allowSelfSigned')} /> Allow self-signed / untrusted certificates</label>
+            <div className="help">Only for an internal server with its own certificate. Turning this on weakens protection against interception.</div></div>
+        </div>
+      </details>
+
+      <div className="spread" style={{ borderTop: '1px solid var(--line)', paddingTop: 16 }}>
+        <span className="small muted">{d.updatedBy ? `Last saved by ${d.updatedBy}, ${fmtTS(d.updatedAt)}` : 'Not saved yet'}</span>
+        <div className="row">
+          <button className="btn" onClick={() => run('connect')} disabled={!!busy}>{busy === 'connect' ? <span className="spinner" /> : <Icon name="shield" />}Test connection</button>
+          <button className="btn primary" onClick={save} disabled={!!busy}>{busy === 'save' ? <span className="spinner" /> : <Icon name="save" />}Save settings</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SmtpTestResult({ result, d }) {
+  return (
+    <>
+      {result && (
+        <output className={`banner ${result.ok ? '' : 'bad'}`} style={{ margin: 0, ...(result.ok ? { background: 'var(--good-bg)' } : {}) }}>
+          <Icon name={result.ok ? 'checkc' : 'alert'} /><span>{result.message}{result.technical && <><br /><small className="muted mono">{result.technical}</small></>}</span>
+        </output>
+      )}
+      {!result && d.lastTest && (
+        <p className="small muted">Last test {fmtTS(d.lastTest.at)}: <span style={{ color: d.lastTest.ok ? 'var(--good-fg)' : 'var(--bad-fg)' }}>{d.lastTest.ok ? 'passed' : 'failed'}</span> — {d.lastTest.message}</p>
+      )}
     </>
   );
 }
