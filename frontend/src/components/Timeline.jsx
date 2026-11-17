@@ -33,14 +33,14 @@ export function milestones(r) {
 
 export function Timeline({ request }) {
   return (
-    <div className="tl" role="list">
+    <ul className="tl">
       {milestones(request).map((m) => (
-        <div key={m.label} role="listitem" className={`tl-s ${m.bad ? 'bad' : m.ev ? 'done' : m.cur ? 'cur' : ''}`}>
+        <li key={m.label} className={`tl-s ${m.bad ? 'bad' : m.ev ? 'done' : m.cur ? 'cur' : ''}`}>
           <span className="n">{m.bad ? <Icon name="x" size={12} /> : m.ev ? <Icon name="check" size={12} /> : null}</span>
           <b>{m.label}</b>
           <small>{m.ev ? <>{fmtTS(m.ev.at).split(',')[0]}<br />{m.ev.byName}</> : m.cur ? (m.sub || `Waiting: ${m.wait || ''}`) : ''}</small>
-        </div>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }

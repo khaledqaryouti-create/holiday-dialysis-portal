@@ -185,9 +185,9 @@ export default function EmailSettingsPage() {
         </div>
         <FieldError msg={err.to} />
         {result && (
-          <div className={`banner ${result.ok ? '' : 'bad'}`} style={{ margin: 0, ...(result.ok ? { background: 'var(--good-bg)' } : {}) }} role="status">
+          <output className={`banner ${result.ok ? '' : 'bad'}`} style={{ margin: 0, ...(result.ok ? { background: 'var(--good-bg)' } : {}) }}>
             <Icon name={result.ok ? 'checkc' : 'alert'} /><span>{result.message}{result.technical && <><br /><small className="muted mono">{result.technical}</small></>}</span>
-          </div>
+          </output>
         )}
         {!result && d.lastTest && (
           <p className="small muted">Last test {fmtTS(d.lastTest.at)}: <span style={{ color: d.lastTest.ok ? 'var(--good-fg)' : 'var(--bad-fg)' }}>{d.lastTest.ok ? 'passed' : 'failed'}</span> — {d.lastTest.message}</p>

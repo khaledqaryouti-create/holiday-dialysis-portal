@@ -29,7 +29,7 @@ export function ForgotPasswordPanel({ initialEmail = '', onBack }) {
       </div>
       <ErrorBox error={error} />
       {sent ? (
-        <div className="lf-sent" role="status"><Icon name="mail" size={22} /><span>{sent}</span></div>
+        <output className="lf-sent"><Icon name="mail" size={22} /><span>{sent}</span></output>
       ) : (
         <form className="lf-form" onSubmit={submit} noValidate>
           <div className="f"><label htmlFor="fp-email">Work email</label>
@@ -95,7 +95,7 @@ export function ResetPasswordPage() {
             {!done && state.ok && <p className="lf-sub">For {state.email}</p>}</div>
           {state.loading ? <span className="spinner" /> : done ? (
             <>
-              <div className="lf-sent" role="status"><Icon name="checkc" size={22} /><span>Your password was changed. Sign in with the new password. We’ve also sent you an email to confirm.</span></div>
+              <output className="lf-sent"><Icon name="checkc" size={22} /><span>Your password was changed. Sign in with the new password. We’ve also sent you an email to confirm.</span></output>
               <button className="btn block lf-submit" type="button" onClick={goSignIn}>Go to sign in</button>
             </>
           ) : !state.ok ? (

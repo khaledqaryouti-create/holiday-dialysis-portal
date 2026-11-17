@@ -209,9 +209,9 @@ function Field({ id, label, req, help, err, children }) {
 
 function Result({ r }) {
   return (
-    <div className={`banner ${r.ok ? '' : 'bad'}`} style={{ margin: 0, ...(r.ok ? { background: 'var(--good-bg)' } : {}) }} role="status">
+    <output className={`banner ${r.ok ? '' : 'bad'}`} style={{ margin: 0, ...(r.ok ? { background: 'var(--good-bg)' } : {}) }}>
       <Icon name={r.ok ? 'checkc' : 'alert'} /><span>{r.message}</span>
-    </div>
+    </output>
   );
 }
 

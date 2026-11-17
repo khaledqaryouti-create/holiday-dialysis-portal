@@ -268,7 +268,7 @@ td .sub{display:block;color:var(--fg-3);font-size:.8rem}
 .detail-head .st{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
 .detail-grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:20px;align-items:start}
 @media (max-width:1000px){.detail-grid{grid-template-columns:minmax(0,1fr)}.detail-head .st{align-items:flex-start}}
-.tl{display:flex;padding:20px 12px 8px;overflow-x:auto}
+.tl{display:flex;list-style:none;margin:0;padding:20px 12px 8px;overflow-x:auto}
 .tl-s{flex:1 1 0;min-width:110px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:4px;position:relative;font-size:.8rem;color:var(--fg-3)}
 .tl-s::before{content:"";position:absolute;top:11px;left:-50%;right:50%;height:2px;background:var(--line-2)}
 .tl-s:first-child::before{display:none}
