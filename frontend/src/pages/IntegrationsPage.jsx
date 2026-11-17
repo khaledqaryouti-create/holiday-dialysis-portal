@@ -231,16 +231,22 @@ function Editor({ id, onBack, onMessages }) {
 
       <Preview conn={conn} />
 
-      <section className="card pad ig-sec ig-savebar">
-        <label className="switch"><input type="checkbox" checked={conn.enabled} onChange={(e) => set({ enabled: e.target.checked })} /> <b>Switched on</b> — {conn.enabled ? 'messages flow on this connection after you save' : 'nothing is sent or received yet'}</label>
-        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-          {saved?.id && <button className="btn ghost danger" onClick={remove}><Icon name="x" />Delete</button>}
-          {saved?.id && <button className="btn" onClick={() => onMessages(saved.id)}><Icon name="list" />Message log</button>}
-          <button className="btn" onClick={() => onBack(changed)}>Close</button>
-          <button className="btn primary" onClick={save} disabled={busy === 'save'}>{busy === 'save' ? <span className="spinner" /> : <><Icon name="save" />Save</>}</button>
-        </div>
-      </section>
+      <EditorActions conn={conn} set={set} saved={saved} remove={remove} onMessages={onMessages} onBack={onBack} changed={changed} save={save} busy={busy} />
     </div>
+  );
+}
+
+function EditorActions({ conn, set, saved, remove, onMessages, onBack, changed, save, busy }) {
+  return (
+    <section className="card pad ig-sec ig-savebar">
+      <label className="switch"><input type="checkbox" checked={conn.enabled} onChange={(e) => set({ enabled: e.target.checked })} /> <b>Switched on</b> — {conn.enabled ? 'messages flow on this connection after you save' : 'nothing is sent or received yet'}</label>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        {saved?.id && <button className="btn ghost danger" onClick={remove}><Icon name="x" />Delete</button>}
+        {saved?.id && <button className="btn" onClick={() => onMessages(saved.id)}><Icon name="list" />Message log</button>}
+        <button className="btn" onClick={() => onBack(changed)}>Close</button>
+        <button className="btn primary" onClick={save} disabled={busy === 'save'}>{busy === 'save' ? <span className="spinner" /> : <><Icon name="save" />Save</>}</button>
+      </div>
+    </section>
   );
 }
 
@@ -250,37 +256,11 @@ function Fields({ list, conn, setCfg, err, secrets = {}, setSecret, savedSecrets
     <div className="ig-fields">
       {list.map((f) => {
         const id = `igf-${f.key}`;
-        const v = conn.config[f.key];
         const wide = f.type === 'textarea' || f.type === 'multi' || f.type === 'checkbox';
-        let input;
-        if (f.secret) {
-          const has = savedSecrets[f.key];
-          input = (
-            <>
-              {f.type === 'textarea'
-                ? <textarea id={id} className={`input mono ${err[f.key] ? 'err' : ''}`} rows={4} value={secrets[f.key] || ''} onChange={(e) => setSecret(f.key, e.target.value)} placeholder={has ? 'Saved — paste a new one to replace it' : ''} autoComplete="off" spellCheck={false} />
-                : <input id={id} type="password" className={`input ${err[f.key] ? 'err' : ''}`} value={secrets[f.key] || ''} onChange={(e) => setSecret(f.key, e.target.value)} placeholder={has ? '•••••••• saved — leave empty to keep' : ''} autoComplete="new-password" />}
-              {has && <button type="button" className="textlink small" onClick={() => onClearSecret(f.key)}>Remove the saved value</button>}
-            </>
-          );
-        } else if (f.type === 'select') {
-          input = <select id={id} className={`select input ${err[f.key] ? 'err' : ''}`} value={v ?? ''} onChange={(e) => setCfg(f.key, e.target.value)}>{Object.entries(f.options).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>;
-        } else if (f.type === 'checkbox') {
-          input = <label className="check-row"><input id={id} type="checkbox" checked={!!v} onChange={(e) => setCfg(f.key, e.target.checked)} /> {f.label}</label>;
-        } else if (f.type === 'multi') {
-          input = <div className="ig-multi">{Object.entries(f.options).map(([k, l]) => (
-            <label key={k} className="check-row"><input type="checkbox" checked={(v || []).includes(k)} onChange={(e) => setCfg(f.key, e.target.checked ? [...(v || []), k] : (v || []).filter((x) => x !== k))} /> {l}</label>
-          ))}</div>;
-        } else if (f.type === 'textarea') {
-          input = <textarea id={id} className={`input mono ${err[f.key] ? 'err' : ''}`} rows={3} value={v ?? ''} onChange={(e) => setCfg(f.key, e.target.value)} placeholder={f.placeholder || ''} spellCheck={false} />;
-        } else {
-          input = <input id={id} className={`input ${f.type === 'url' ? 'mono' : ''} ${err[f.key] ? 'err' : ''}`} type={f.type === 'number' ? 'number' : 'text'} inputMode={f.type === 'url' ? 'url' : undefined}
-            value={v ?? ''} onChange={(e) => setCfg(f.key, f.type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)} placeholder={f.placeholder || ''} spellCheck={false} />;
-        }
         return (
           <div key={f.key} className={`f ${wide ? 'wide' : ''}`}>
             {f.type !== 'checkbox' && <label htmlFor={id}>{f.label}{f.required ? ' *' : ''}</label>}
-            {input}
+            <FieldControl f={f} conn={conn} setCfg={setCfg} err={err} secrets={secrets} setSecret={setSecret} savedSecrets={savedSecrets} onClearSecret={onClearSecret} />
             {f.help && <div className="help">{f.help}</div>}
             <FieldError msg={err[f.key]} />
           </div>
@@ -288,6 +268,38 @@ function Fields({ list, conn, setCfg, err, secrets = {}, setSecret, savedSecrets
       })}
     </div>
   );
+}
+
+function FieldControl({ f, conn, setCfg, err, secrets, setSecret, savedSecrets, onClearSecret }) {
+  const id = `igf-${f.key}`;
+  const v = conn.config[f.key];
+  if (f.secret) {
+    const has = savedSecrets[f.key];
+    return (
+      <>
+        {f.type === 'textarea'
+          ? <textarea id={id} className={`input mono ${err[f.key] ? 'err' : ''}`} rows={4} value={secrets[f.key] || ''} onChange={(e) => setSecret(f.key, e.target.value)} placeholder={has ? 'Saved — paste a new one to replace it' : ''} autoComplete="off" spellCheck={false} />
+          : <input id={id} type="password" className={`input ${err[f.key] ? 'err' : ''}`} value={secrets[f.key] || ''} onChange={(e) => setSecret(f.key, e.target.value)} placeholder={has ? '•••••••• saved — leave empty to keep' : ''} autoComplete="new-password" />}
+        {has && <button type="button" className="textlink small" onClick={() => onClearSecret(f.key)}>Remove the saved value</button>}
+      </>
+    );
+  }
+  if (f.type === 'select') {
+    return <select id={id} className={`select input ${err[f.key] ? 'err' : ''}`} value={v ?? ''} onChange={(e) => setCfg(f.key, e.target.value)}>{Object.entries(f.options).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>;
+  }
+  if (f.type === 'checkbox') {
+    return <label className="check-row"><input id={id} type="checkbox" checked={!!v} onChange={(e) => setCfg(f.key, e.target.checked)} /> {f.label}</label>;
+  }
+  if (f.type === 'multi') {
+    return <div className="ig-multi">{Object.entries(f.options).map(([k, l]) => (
+      <label key={k} className="check-row"><input type="checkbox" checked={(v || []).includes(k)} onChange={(e) => setCfg(f.key, e.target.checked ? [...(v || []), k] : (v || []).filter((x) => x !== k))} /> {l}</label>
+    ))}</div>;
+  }
+  if (f.type === 'textarea') {
+    return <textarea id={id} className={`input mono ${err[f.key] ? 'err' : ''}`} rows={3} value={v ?? ''} onChange={(e) => setCfg(f.key, e.target.value)} placeholder={f.placeholder || ''} spellCheck={false} />;
+  }
+  return <input id={id} className={`input ${f.type === 'url' ? 'mono' : ''} ${err[f.key] ? 'err' : ''}`} type={f.type === 'number' ? 'number' : 'text'} inputMode={f.type === 'url' ? 'url' : undefined}
+    value={v ?? ''} onChange={(e) => setCfg(f.key, f.type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)} placeholder={f.placeholder || ''} spellCheck={false} />;
 }
 
 function InboundBox({ saved, conn, newKey, onKey }) {
