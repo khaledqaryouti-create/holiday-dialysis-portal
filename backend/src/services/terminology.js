@@ -27,7 +27,7 @@ export async function getTerminologySettings() {
   return { enabled: !!r?.enabled, terms: termsOf(r), updatedAt: r?.updated_at || null, updatedBy: r?.updated_by || null, catalogue: TERMS, ready: !!r };
 }
 
-export async function saveTerminologySettings(admin, body = {}, ip) {
+export async function saveTerminologySettings(admin, ip, body = {}) {
   const input = body.terms && typeof body.terms === 'object' ? body.terms : {};
   const errors = validateTerms(input);
   if (Object.keys(errors).length) throw validationFailed(errors);

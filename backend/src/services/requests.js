@@ -329,7 +329,7 @@ function cleanStr(v, max = 200) {
   return s ? s.slice(0, max) : null;
 }
 
-function sanitizeDraft(body = {}, vr) {
+function sanitizeDraft(vr, body = {}) {
   const errors = {};
   const out = {};
   const pt = body.patient || {};
@@ -428,7 +428,7 @@ async function writeDraftFields(c, user, r, d) {
 export async function createDraft(user, body, ip) {
   if (!hasRole(user, ROLES.CLINIC_STAFF) || !user.clinicIds.length) throw forbidden('Only clinic staff can create requests.');
   const home = body.requestingFacilityId && user.clinicIds.includes(body.requestingFacilityId) ? body.requestingFacilityId : user.clinicIds[0];
-  const d = sanitizeDraft(body, await currentInputRules());
+  const d = sanitizeDraft(await currentInputRules(), body);
   const id = await withTx(async (c) => {
     const { rows } = await c.query(
       `INSERT INTO holiday_dialysis_request (request_number, requesting_facility_id, created_by_user_id)
@@ -445,7 +445,7 @@ export async function createDraft(user, body, ip) {
 }
 
 export async function updateDraft(user, id, body, ip) {
-  const d = sanitizeDraft(body, await currentInputRules());
+  const d = sanitizeDraft(await currentInputRules(), body);
   await runAction(user, id, ACTIONS.EDIT_DRAFT, body.rowVersion, async (ctx) => {
     await writeDraftFields(ctx.c, user, ctx.r, d);
     await audit(ctx.c, { user, action: 'DraftUpdated', entityType: 'Request', entityId: ctx.r.requestNumber, ip });

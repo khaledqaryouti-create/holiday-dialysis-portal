@@ -43,7 +43,7 @@ export async function getFormSettings() {
   return { ...mapRow(await loadRow()), fields: FIELD_DEFS };
 }
 
-export async function saveFormSettings(admin, body = {}, ip) {
+export async function saveFormSettings(admin, ip, body = {}) {
   const n = {
     rules: body.rules && typeof body.rules === 'object' ? body.rules : {},
     requiredColor: String(body.requiredColor || '').trim().toLowerCase(),

@@ -28,7 +28,7 @@ export async function getValidationSettings() {
   };
 }
 
-export async function saveValidationSettings(admin, body = {}, ip) {
+export async function saveValidationSettings(admin, ip, body = {}) {
   const input = body.rules && typeof body.rules === 'object' ? body.rules : {};
   const errors = validateInputSettings(input);
   if (Object.keys(errors).length) throw validationFailed(errors);

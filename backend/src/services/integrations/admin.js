@@ -88,7 +88,7 @@ async function existingSecrets(id) {
   return { conn: c, secrets: c.secrets || {} };
 }
 
-export async function saveConnection(admin, id, body = {}, ip) {
+export async function saveConnection(admin, id, ip, body = {}) {
   if (!(await engine.tablesReady())) throw badRequest('Run database migration 014_integrations.sql first.');
   let before = null; let oldSecrets = {};
   if (id) { if (!isUuid(id)) throw notFound('Connection not found.'); const e = await existingSecrets(id); before = e.conn; oldSecrets = e.secrets; }

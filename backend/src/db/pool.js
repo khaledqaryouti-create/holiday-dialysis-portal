@@ -8,9 +8,7 @@ pg.types.setTypeParser(20, (v) => Number(v));
 pg.types.setTypeParser(1700, (v) => Number(v)); // numeric (averages in reports)
 
 function sslOption() {
-  const mode = config.db.ssl;
-  if (mode === 'disable') return false;
-  if (mode === 'verify') {
+  if (config.db.ssl === 'verify') {
     if (!config.db.sslCaPath) throw new Error('DATABASE_SSL=verify needs DATABASE_SSL_CA (download the CA from Supabase → Database settings).');
     return { ca: fs.readFileSync(config.db.sslCaPath, 'utf8'), rejectUnauthorized: true };
   }
@@ -20,7 +18,7 @@ function sslOption() {
 
 export const pool = new pg.Pool({
   connectionString: config.db.url,
-  ssl: config.db.url ? sslOption() : false,
+  ssl: !config.db.url || config.db.ssl === 'disable' ? false : sslOption(),
   max: config.db.poolMax,
   idleTimeoutMillis: 30_000,
   application_name: 'holiday-dialysis-portal',
