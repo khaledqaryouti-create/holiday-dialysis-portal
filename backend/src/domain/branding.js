@@ -93,7 +93,11 @@ export function detectLogoType(buf) {
   const text = new TextDecoder('utf-8', { fatal: false }).decode(buf.subarray(0, Math.min(buf.length, LOGO_MAX_BYTES)));
   if (/<svg[\s>]/i.test(text)) {
     // SVG can carry script. Refuse anything active; the server also serves logos with a sandboxing CSP.
-    if (/<script|<foreignObject|\son[a-z]+\s*=|javascript:|<iframe|<embed|<object|xlink:href\s*=\s*["']\s*(?!#)|<!ENTITY/i.test(text)) {
+    const blocked = [
+      /<script/i, /<foreignObject/i, /\son[a-z]+\s*=/i, /javascript:/i, /<iframe/i, /<embed/i, /<object/i,
+      /xlink:href\s*=\s*["']\s*(?!#)/i, /<!ENTITY/i,
+    ];
+    if (blocked.some((re) => re.test(text))) {
       throw new Error('This SVG contains scripts or external links, which aren’t allowed. Export a plain SVG or use PNG.');
     }
     return 'image/svg+xml';

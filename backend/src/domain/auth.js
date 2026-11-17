@@ -89,7 +89,7 @@ function ldapErrors(s, saved) {
 
 function microsoftErrors(s, saved) {
   const e = {};
-  const guidOrDomain = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+)$/i;
+  const guidOrDomain = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-z0-9-]+(\.[a-z0-9-]+)+)$/i;
   if (!guidOrDomain.test(String(s.msTenantId || '').trim())) e.msTenantId = 'Enter the Directory (tenant) ID or your tenant domain, for example company.onmicrosoft.com.';
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s.msClientId || '').trim())) e.msClientId = 'Enter the Application (client) ID — a GUID.';
   if (!s.msClientSecret && !saved.hasMsClientSecret) e.msClientSecret = 'Enter the client secret value.';

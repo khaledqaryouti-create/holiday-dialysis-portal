@@ -45,6 +45,7 @@ test('SVG logos with scripts, event handlers or external links are refused', () 
     '<svg><a href="javascript:alert(1)">x</a></svg>',
     '<svg><foreignObject><div/></foreignObject></svg>',
     '<svg><image xlink:href="https://evil.example/x.png"/></svg>',
+    '<svg><image xlink:href="http://evil"/></svg>',
     '<!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/passwd">]><svg>&x;</svg>',
   ]) assert.throws(() => detectLogoType(Buffer.from(bad)), /aren’t allowed/, bad);
   assert.equal(detectLogoType(Buffer.from('<svg><use xlink:href="#a"/></svg>')), 'image/svg+xml');

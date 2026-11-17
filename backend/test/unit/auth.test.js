@@ -64,6 +64,11 @@ test('settings validation: at least one method, complete LDAP and Microsoft deta
   const ms = { ...base, msEnabled: true, msTenantId: 'company.onmicrosoft.com', msClientId: '0f8fad5b-d9cb-469f-a165-70867728950e',
     msClientSecret: 's', msRedirectUri: 'https://portal.company.com/api/auth/microsoft/callback' };
   assert.deepEqual(validateAuthSettings(ms), {});
+  assert.equal(validateAuthSettings({ ...ms, msTenantId: 'COMPANY.OnMicrosoft.COM' }).msTenantId, undefined);
+  assert.equal(validateAuthSettings({ ...ms, msTenantId: '11111111-2222-3333-4444-555555555555' }).msTenantId, undefined);
+  assert.ok(validateAuthSettings({ ...ms, msTenantId: 'company' }).msTenantId);
+  assert.ok(validateAuthSettings({ ...ms, msTenantId: 'has space.com' }).msTenantId);
+  assert.ok(validateAuthSettings({ ...ms, msTenantId: '' }).msTenantId);
   assert.ok(validateAuthSettings({ ...ms, msClientId: 'abc' }).msClientId);
   assert.ok(validateAuthSettings({ ...ms, msRedirectUri: 'https://portal.company.com/' }).msRedirectUri);
 });
