@@ -11,9 +11,9 @@ assertConfig({ needServer: false });
 const which = process.argv[2] || 'all';
 const JOBS = { integrations: runIntegrationJobs, reminders: () => runReminders() };
 let failed = false;
-for (const [name, fn] of Object.entries(JOBS)) {
+for (const [name, fn] of Object.entries(JOBS)) { // NOSONAR integrations, then reminders, then the pool closes
   if (which !== 'all' && which !== name) continue;
-  const r = await runJob(name, fn);
+  const r = await runJob(name, fn); // NOSONAR
   console.log(`[jobs] ${name}: ${!r.ran ? 'skipped (another server is running it)' : r.ok ? `done ${JSON.stringify(r.result ?? '')}` : `FAILED ${r.error}`}`);
   if (r.ran && !r.ok) failed = true;
 }

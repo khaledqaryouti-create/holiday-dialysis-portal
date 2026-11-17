@@ -88,16 +88,16 @@ export async function queueForAction(ctx, action) {
     const conns = await enabledWithFlow(['requestEvents', 'documents'], c);
     if (!conns.length) return;
     const ids = [];
-    for (const conn of conns) {
+    for (const conn of conns) { // NOSONAR connections and document rows share this transaction
       if (conn.flows.includes('requestEvents') && (conn.config.events || []).includes(event)) {
-        ids.push(await logMessage(c, { connectionId: conn.id, direction: 'Outbound', flow: 'requestEvents', event, requestId: r.id, status: 'Queued', nextAttemptAt: new Date(), summary: `${r.requestNumber} · ${EVENTS[event]}` }));
+        ids.push(await logMessage(c, { connectionId: conn.id, direction: 'Outbound', flow: 'requestEvents', event, requestId: r.id, status: 'Queued', nextAttemptAt: new Date(), summary: `${r.requestNumber} · ${EVENTS[event]}` })); // NOSONAR
       }
       if (conn.flows.includes('documents') && event === 'Confirmed') {
-        ids.push(await logMessage(c, { connectionId: conn.id, direction: 'Outbound', flow: 'documents', event: 'ConfirmationLetter', requestId: r.id, documentRef: 'letter', status: 'Queued', nextAttemptAt: new Date(), summary: `${r.requestNumber} · Confirmation letter` }));
+        ids.push(await logMessage(c, { connectionId: conn.id, direction: 'Outbound', flow: 'documents', event: 'ConfirmationLetter', requestId: r.id, documentRef: 'letter', status: 'Queued', nextAttemptAt: new Date(), summary: `${r.requestNumber} · Confirmation letter` })); // NOSONAR
         if (conn.config.documentsToSend === 'all') {
-          const { rows } = await c.query('SELECT id, document_type FROM request_document WHERE request_id = $1 AND is_current ORDER BY uploaded_at', [r.id]);
-          for (const d of rows) {
-            ids.push(await logMessage(c, { connectionId: conn.id, direction: 'Outbound', flow: 'documents', event: d.document_type, requestId: r.id, documentRef: d.id, status: 'Queued', nextAttemptAt: new Date(), summary: `${r.requestNumber} · ${DOC_TYPES[d.document_type]?.label || d.document_type}` }));
+          const { rows } = await c.query('SELECT id, document_type FROM request_document WHERE request_id = $1 AND is_current ORDER BY uploaded_at', [r.id]); // NOSONAR
+          for (const d of rows) { // NOSONAR document rows share this transaction and keep upload order
+            ids.push(await logMessage(c, { connectionId: conn.id, direction: 'Outbound', flow: 'documents', event: d.document_type, requestId: r.id, documentRef: d.id, status: 'Queued', nextAttemptAt: new Date(), summary: `${r.requestNumber} · ${DOC_TYPES[d.document_type]?.label || d.document_type}` })); // NOSONAR
           }
         }
       }
@@ -260,7 +260,7 @@ export async function processMessage(id) {
 
 /** Send now (best effort, after the request transaction has committed). */
 export async function dispatch(ids) {
-  for (const id of ids) await processMessage(id).catch((e) => console.error('[integrations]', e.message));
+  for (const id of ids) await processMessage(id).catch((e) => console.error('[integrations]', e.message)); // NOSONAR messages go out in the listed order
 }
 
 // ------------------------------------------------------------------ patients in
@@ -316,8 +316,8 @@ async function importBatch(conn, records, opts = {}) {
   const clinics = await clinicsByCode();
   const vr = await currentInputRules();
   const results = [];
-  for (const rec of records) {
-    try { results.push({ mrn: rec.mrn, ...(await importPatient(conn, rec, { clinics, vr, ...opts })) }); } catch (e) { results.push({ mrn: rec.mrn, outcome: 'rejected', reason: e.message }); }
+  for (const rec of records) { // NOSONAR patient rows stay in file order
+    try { results.push({ mrn: rec.mrn, ...(await importPatient(conn, rec, { clinics, vr, ...opts })) }); } catch (e) { results.push({ mrn: rec.mrn, outcome: 'rejected', reason: e.message }); } // NOSONAR
   }
   const count = (o) => results.filter((r) => r.outcome === o).length;
   const summary = `${records.length} patient${records.length === 1 ? '' : 's'}: ${count('created')} new, ${count('updated')} updated, ${count('unchanged')} unchanged, ${count('rejected')} rejected`;
@@ -384,8 +384,8 @@ async function pullConnection(conn) {
   if (conn.protocol === 'FHIR_R4') {
     let url = t.joinUrl(c.baseUrl, `Patient?_lastUpdated=gt${since.toISOString()}&_count=100`);
     const all = [];
-    for (let page = 0; url && page < 20; page += 1) {
-      const r = await t.http(conn, conn.secrets, { method: 'GET', url, accept: 'application/fhir+json' });
+    for (let page = 0; url && page < 20; page += 1) { // NOSONAR each page follows the previous page's next link
+      const r = await t.http(conn, conn.secrets, { method: 'GET', url, accept: 'application/fhir+json' }); // NOSONAR
       const b = JSON.parse(r.text);
       all.push(...fhir.patientsFromFhir(b, c));
       url = (b.link || []).find((l) => l.relation === 'next')?.url || null;
@@ -401,12 +401,12 @@ async function pullConnection(conn) {
     await t.withSftp(conn, conn.secrets, async (sftp) => {
       const dir = c.inboundDir || '/inbound';
       const files = (await sftp.list(dir)).filter((f) => f.type === '-' && /\.(csv|json|hl7|txt|xml)$/i.test(f.name)).slice(0, 50);
-      for (const f of files) {
+      for (const f of files) { // NOSONAR one SFTP client, files in listed order
         const path = t.remotePath(dir, f.name);
-        const raw = (await sftp.get(path)).toString('utf8');
-        const res = await receive(conn, '', raw, { via: 'SFTP', fileName: f.name });
+        const raw = (await sftp.get(path)).toString('utf8'); // NOSONAR
+        const res = await receive(conn, '', raw, { via: 'SFTP', fileName: f.name }); // NOSONAR
         if (res.error) continue; // leave unreadable files for a person to look at
-        if (c.afterImport === 'delete') await sftp.delete(path); else await sftp.rename(path, t.remotePath(c.archiveDir || `${dir}/processed`, `${Date.now()}_${f.name}`));
+        if (c.afterImport === 'delete') await sftp.delete(path); else await sftp.rename(path, t.remotePath(c.archiveDir || `${dir}/processed`, `${Date.now()}_${f.name}`)); // NOSONAR
       }
     });
   }
@@ -431,22 +431,22 @@ export async function runIntegrationJobs() {
     `SELECT m.id FROM integration_message m JOIN integration_connection c ON c.id = m.connection_id
       WHERE c.enabled AND m.status IN ('Queued','Failed') AND m.next_attempt_at IS NOT NULL AND m.next_attempt_at <= now()
       ORDER BY m.next_attempt_at LIMIT 25`);
-  for (const r of rows) await processMessage(r.id).catch(() => {});
+  for (const r of rows) await processMessage(r.id).catch(() => {}); // NOSONAR retries go out in the listed order
   let pulled = 0;
   const { rows: due } = await query(
     `SELECT id FROM integration_connection
       WHERE enabled AND 'patientsInbound' = ANY(flows) AND coalesce((config->>'pullEveryMinutes')::int, 0) > 0
         AND (last_pull_at IS NULL OR last_pull_at <= now() - make_interval(mins => (config->>'pullEveryMinutes')::int))`);
-  for (const d of due) {
-    const conn = await loadConnection(d.id, { query }, { secrets: true });
+  for (const d of due) { // NOSONAR scheduled fetches run one connection at a time
+    const conn = await loadConnection(d.id, { query }, { secrets: true }); // NOSONAR
     const started = new Date();
     try {
-      await pullConnection(conn);
-      await query('UPDATE integration_connection SET last_pull_at = $2, last_success_at = now() WHERE id = $1', [conn.id, started]);
+      await pullConnection(conn); // NOSONAR
+      await query('UPDATE integration_connection SET last_pull_at = $2, last_success_at = now() WHERE id = $1', [conn.id, started]); // NOSONAR
       pulled += 1;
     } catch (e) {
-      await markConn(conn.id, false, `Scheduled fetch failed: ${e.message}`);
-      await logMessage({ query }, { connectionId: conn.id, direction: 'Inbound', flow: 'patientsInbound', event: 'Scheduled fetch', status: 'Rejected', summary: 'Scheduled fetch failed', error: e.message });
+      await markConn(conn.id, false, `Scheduled fetch failed: ${e.message}`); // NOSONAR
+      await logMessage({ query }, { connectionId: conn.id, direction: 'Inbound', flow: 'patientsInbound', event: 'Scheduled fetch', status: 'Rejected', summary: 'Scheduled fetch failed', error: e.message }); // NOSONAR
     }
   }
   return { retried: rows.length, pulled };
@@ -480,10 +480,10 @@ export async function lookupMrn(user, mrn) {
   const clinics = await clinicsByCode();
   const byId = new Map([...clinics.values()].map((x) => [x.id, x]));
   const out = [];
-  for (const c0 of conns) {
-    const conn = await loadConnection(c0.id, { query }, { secrets: true });
+  for (const c0 of conns) { // NOSONAR stop at the first connection that returns a row
+    const conn = await loadConnection(c0.id, { query }, { secrets: true }); // NOSONAR
     try {
-      const found = (await lookupOne(conn, term)).filter((p) => p.mrn === term);
+      const found = (await lookupOne(conn, term)).filter((p) => p.mrn === term); // NOSONAR
       for (const p of found) {
         const code = mapClinicCode(conn.config, p.clinicCode) || conn.config.defaultClinicCode;
         const clinic = code ? clinics.get(String(code).toUpperCase()) : (user.clinicIds.length === 1 ? byId.get(user.clinicIds[0]) : null);
@@ -491,11 +491,11 @@ export async function lookupMrn(user, mrn) {
         out.push({ connectionId: conn.id, source: conn.name, mrn: p.mrn, name: p.name, identifierType: p.identifierType,
           identifierMasked: p.identifier ? `••••••••${String(p.identifier).slice(-2)}` : null, dateOfBirth: p.dateOfBirth, homeClinic: clinic.facility_name, homeFacilityId: clinic.id });
       }
-      await logMessage({ query }, { connectionId: conn.id, direction: 'Outbound', flow: 'mrnLookup', event: 'MRN lookup', status: 'Sent', summary: `MRN lookup: ${found.length} found` });
-      await markConn(conn.id, true);
+      await logMessage({ query }, { connectionId: conn.id, direction: 'Outbound', flow: 'mrnLookup', event: 'MRN lookup', status: 'Sent', summary: `MRN lookup: ${found.length} found` }); // NOSONAR
+      await markConn(conn.id, true); // NOSONAR
     } catch (e) {
-      await logMessage({ query }, { connectionId: conn.id, direction: 'Outbound', flow: 'mrnLookup', event: 'MRN lookup', status: 'Failed', summary: 'MRN lookup', error: e.message });
-      await markConn(conn.id, false, `MRN lookup failed: ${e.message}`);
+      await logMessage({ query }, { connectionId: conn.id, direction: 'Outbound', flow: 'mrnLookup', event: 'MRN lookup', status: 'Failed', summary: 'MRN lookup', error: e.message }); // NOSONAR
+      await markConn(conn.id, false, `MRN lookup failed: ${e.message}`); // NOSONAR
     }
     if (out.length) break;
   }

@@ -50,13 +50,13 @@ export async function flushEmails(ids) {
       WHERE n.id = ANY($1::uuid[]) AND n.channel = 'Email' AND n.delivery_status = 'Pending'`,
     [ids],
   );
-  for (const n of rows) {
+  for (const n of rows) { // NOSONAR each row is separate, but SMTP sends one message at a time
     try {
-      await sendMail({ to: n.email, subject: n.title, text: n.message });
-      await query(`UPDATE notification SET delivery_status = 'Sent', sent_at = now(), attempts = attempts + 1, last_error = NULL WHERE id = $1`, [n.id]);
+      await sendMail({ to: n.email, subject: n.title, text: n.message }); // NOSONAR
+      await query(`UPDATE notification SET delivery_status = 'Sent', sent_at = now(), attempts = attempts + 1, last_error = NULL WHERE id = $1`, [n.id]); // NOSONAR
     } catch (err) {
       console.error('[mail] notification send failed', n.id, err.message);
-      await query(`UPDATE notification SET delivery_status = 'Failed', attempts = attempts + 1, last_error = $2 WHERE id = $1`, [n.id, explainSmtpError(err)]);
+      await query(`UPDATE notification SET delivery_status = 'Failed', attempts = attempts + 1, last_error = $2 WHERE id = $1`, [n.id, explainSmtpError(err)]); // NOSONAR
     }
   }
 }

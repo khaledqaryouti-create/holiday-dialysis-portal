@@ -25,14 +25,14 @@ export async function runReminders(now = new Date()) {
     [today],
   );
   let sent = 0;
-  for (const x of rows) {
+  for (const x of rows) { // NOSONAR one transaction and one email per request, in query order
     const info = pendingInfo({ status: x.current_status, statusChangedAt: x.status_changed_at, travelEnd: x.travel_end_date }, sla, today, now);
     if (!info?.overdue) continue;
     const stage = info.kind === 'completion' ? 'Completion' : x.current_status;
     const freqMs = (sla[stage]?.reminderDays ?? 1) * 86_400_000;
     if (x.last_reminder && now - new Date(x.last_reminder) < freqMs) continue;
 
-    const emailIds = await withTx(async (c) => {
+    const emailIds = await withTx(async (c) => { // NOSONAR
       const r = await loadRequest(c, x.id, true);
       if (!r || r.status !== x.current_status) return [];
       let userIds = [];
@@ -55,7 +55,7 @@ export async function runReminders(now = new Date()) {
       await audit(c, { user: null, action: 'ReminderSent', entityType: 'Request', entityId: r.requestNumber, detail: { stage, days: info.days, recipients: userIds.length } });
       return ids;
     });
-    await flushEmails(emailIds);
+    await flushEmails(emailIds); // NOSONAR
     sent += 1;
   }
   return sent;

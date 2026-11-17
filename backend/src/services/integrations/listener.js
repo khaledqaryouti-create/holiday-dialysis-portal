@@ -13,8 +13,8 @@ export async function refreshMllpListeners() {
     `SELECT id FROM integration_connection WHERE enabled AND protocol = 'HL7V2_MLLP' AND 'patientsInbound' = ANY(flows)
         AND coalesce(config->>'listenPort', '') ~ '^[0-9]+$'`);
   const wanted = new Map();
-  for (const r of rows) {
-    const conn = await engine.loadConnection(r.id);
+  for (const r of rows) { // NOSONAR each connection is loaded before its listener starts
+    const conn = await engine.loadConnection(r.id); // NOSONAR
     wanted.set(conn.id, Number(conn.config.listenPort));
   }
   for (const [id, s] of servers) {
@@ -29,11 +29,11 @@ export async function refreshMllpListeners() {
         buf += d;
         const { messages, rest } = mllpUnframe(buf);
         buf = rest;
-        for (const msg of messages) {
+        for (const msg of messages) { // NOSONAR HL7 messages on this socket are answered in arrival order
           try {
-            const conn = await engine.loadConnection(id);
+            const conn = await engine.loadConnection(id); // NOSONAR
             if (!conn?.enabled) { sock.end(); return; }
-            const result = await engine.receive(conn, 'x-application/hl7-v2+er7', msg, { via: `MLLP ${sock.remoteAddress}` });
+            const result = await engine.receive(conn, 'x-application/hl7-v2+er7', msg, { via: `MLLP ${sock.remoteAddress}` }); // NOSONAR
             sock.write(mllpFrame(engine.inboundReply(conn, msg, result).body));
           } catch (e) { console.error('[mllp]', e.message); }
         }

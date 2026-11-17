@@ -291,7 +291,7 @@ async function runAction(user, id, action, rowVersion, fn) {
     throw err;
   }
   await flushEmails(emailIds);
-  for (const f of afterCommit) await f().catch((e) => console.error('[after-commit]', e.message));
+  for (const f of afterCommit) await f().catch((e) => console.error('[after-commit]', e.message)); // NOSONAR hooks run in the order they were registered
   return result;
 }
 
@@ -872,9 +872,9 @@ async function createProposal(ctx, { source, options, message, replyDocId = null
     `INSERT INTO request_date_proposal (request_id, round_no, proposal_source, message, reply_document_id, proposed_by_user_id)
      VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`, [r.id, round, source, message, replyDocId, user.id]);
   const pid = rows[0].id;
-  for (let i = 0; i < options.length; i++) {
+  for (let i = 0; i < options.length; i++) { // NOSONAR date options keep option_no on this transaction
     const o = options[i];
-    await c.query(
+    await c.query( // NOSONAR
       `INSERT INTO request_date_option (proposal_id, option_no, start_date, end_date, sessions, note, session_plan)
        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
       [pid, i + 1, o.start, o.end, o.sessions ?? null, o.note ?? null, JSON.stringify(o.sessionPlan || [])]);

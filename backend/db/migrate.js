@@ -16,19 +16,19 @@ async function main() {
     const done = new Set((await client.query('SELECT name FROM schema_migrations')).rows.map((r) => r.name));
     const files = (await fs.readdir(dir)).filter((f) => f.endsWith('.sql')).sort();
     let applied = 0;
-    for (const f of files) {
+    for (const f of files) { // NOSONAR later SQL files depend on earlier ones and share one client
       if (done.has(f)) continue;
-      const sql = await fs.readFile(path.join(dir, f), 'utf8');
+      const sql = await fs.readFile(path.join(dir, f), 'utf8'); // NOSONAR
       process.stdout.write(`[migrate] ${f} … `);
-      await client.query('BEGIN');
+      await client.query('BEGIN'); // NOSONAR
       try {
-        await client.query(sql);
-        await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [f]);
-        await client.query('COMMIT');
+        await client.query(sql); // NOSONAR
+        await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [f]); // NOSONAR
+        await client.query('COMMIT'); // NOSONAR
         console.log('ok');
         applied += 1;
       } catch (e) {
-        await client.query('ROLLBACK');
+        await client.query('ROLLBACK'); // NOSONAR
         console.log('FAILED');
         throw e;
       }
