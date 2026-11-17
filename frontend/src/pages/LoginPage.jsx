@@ -26,6 +26,62 @@ function MicrosoftLogo() {
   );
 }
 
+function clinicLabel(c) {
+  return `${c.name}${c.city && !c.name.includes(c.city) ? ` (${c.city})` : ''}`;
+}
+
+const usernameKey = (raw) => String(raw ?? '').trim().toLowerCase();
+
+function MicrosoftSignIn({ busy, label, onStart }) {
+  return (
+    <a className="btn block lf-ms" href="/api/auth/microsoft/login" onClick={onStart}>
+      {busy ? <span className="spinner" /> : <MicrosoftLogo />}{label || 'Sign in with Microsoft'}
+    </a>
+  );
+}
+
+function PasswordSignIn({ form, setForm, fieldErr, showPw, setShowPw, clinicStatus, clinics, options, busy, setUserEl, noteUsername, ensureClinics, chooseClinic, setForgot, submit }) {
+  return (
+    <form className="lf-form" onSubmit={submit} noValidate
+      onFocus={() => { const value = document.getElementById('li-user')?.value ?? ''; if (value && usernameKey(value) !== usernameKey(form.username)) noteUsername(value); }}>
+      <div className="f"><label htmlFor="li-user">User name</label>
+        <div className="input-ic"><Icon name="user" />
+          <input id="li-user" ref={setUserEl} className={`input ${fieldErr.username ? 'err' : ''}`} autoComplete="username" autoCapitalize="none" spellCheck={false}
+            value={form.username}
+            onChange={(e) => noteUsername(e.target.value)}
+            onBlur={(e) => { if (e.target.value !== form.username) noteUsername(e.target.value); ensureClinics(e.target.value); }}
+            onAnimationStart={(e) => { if (e.animationName === 'hdp-autofill') noteUsername(e.target.value); }}
+            placeholder={options.usernameHint} /></div>
+        <FieldError msg={fieldErr.username} /></div>
+      <div className="f"><label htmlFor="li-pw">Password</label>
+        <div className="input-ic"><Icon name="lock" />
+          <input id="li-pw" type={showPw ? 'text' : 'password'} className={`input ${fieldErr.password ? 'err' : ''}`} autoComplete="current-password"
+            value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+          <button type="button" className="reveal" onClick={() => setShowPw(!showPw)} aria-label={showPw ? 'Hide password' : 'Show password'} aria-pressed={showPw}><Icon name={showPw ? 'eyeoff' : 'eye'} /></button></div>
+        <FieldError msg={fieldErr.password} /></div>
+      <div className="f">
+        <label htmlFor="li-clinic">Clinic</label>
+        <div className="input-ic"><Icon name="building" />
+          <select id="li-clinic" className={`input ${fieldErr.clinic ? 'err' : ''}`}
+            value={form.clinicId}
+            onChange={(e) => chooseClinic(e.target.value)}
+            disabled={clinicStatus !== 'ready' || !clinics.length}
+            aria-invalid={fieldErr.clinic ? true : undefined}>
+            <option value="">
+              {!form.username.trim() ? 'Enter your user name first'
+                : clinicStatus === 'loading' ? 'Loading clinics…'
+                : clinics.length ? 'Choose a clinic' : 'No clinic to choose'}
+            </option>
+            {clinics.map((c) => <option key={c.id} value={c.id}>{clinicLabel(c)}</option>)}
+          </select></div>
+        <FieldError msg={fieldErr.clinic} />
+        {options.local && <button type="button" className="lf-link lf-forgot-link" onClick={() => setForgot(true)}>Forgot password?</button>}
+      </div>
+      <button className="btn block lf-submit" type="submit" disabled={!!busy}>{busy === 'pw' ? <span className="spinner" /> : null}Sign in</button>
+    </form>
+  );
+}
+
 export default function LoginPage() {
   const { options = {}, passwordLogin } = useAuth();
   const [forgot, setForgot] = useState(false);
@@ -72,7 +128,6 @@ export default function LoginPage() {
     return list.some((c) => c.id === remembered) ? remembered : '';
   }
 
-  const usernameKey = (raw) => String(raw ?? '').trim().toLowerCase();
   // A finished address (paste or the last character of an email) can be looked up at once.
   const isCompleteEmail = (key) => { const at = key.indexOf('@'); return at > 0 && key.slice(at + 1).includes('.'); };
 
@@ -179,10 +234,6 @@ export default function LoginPage() {
     };
   }, [showPasswordForm, userNode, forgot]);
 
-  function clinicLabel(c) {
-    return `${c.name}${c.city && !c.name.includes(c.city) ? ` (${c.city})` : ''}`;
-  }
-
   function chooseClinic(id) {
     setForm((f) => ({ ...f, clinicId: id }));
     setFieldErr((x) => ({ ...x, clinic: undefined }));
@@ -244,51 +295,13 @@ export default function LoginPage() {
           <ErrorBox error={error} />
 
           {options.microsoft && !forgot && (
-            <a className="btn block lf-ms" href="/api/auth/microsoft/login" onClick={() => setBusy('ms')}>
-              {busy === 'ms' ? <span className="spinner" /> : <MicrosoftLogo />}{options.microsoftLabel || 'Sign in with Microsoft'}
-            </a>
+            <MicrosoftSignIn busy={busy === 'ms'} label={options.microsoftLabel} onStart={() => setBusy('ms')} />
           )}
           {options.microsoft && showPasswordForm && !forgot && <div className="lf-or"><span>or use your user name</span></div>}
 
           {forgot && <ForgotPasswordPanel initialEmail={form.username} onBack={() => setForgot(false)} />}
           {showPasswordForm && !forgot && (
-            <form className="lf-form" onSubmit={submit} noValidate
-              onFocus={() => { const value = document.getElementById('li-user')?.value ?? ''; if (value && usernameKey(value) !== usernameKey(form.username)) noteUsername(value); }}>
-              <div className="f"><label htmlFor="li-user">User name</label>
-                <div className="input-ic"><Icon name="user" />
-                  <input id="li-user" ref={setUserEl} className={`input ${fieldErr.username ? 'err' : ''}`} autoComplete="username" autoCapitalize="none" spellCheck={false}
-                    value={form.username}
-                    onChange={(e) => noteUsername(e.target.value)}
-                    onBlur={(e) => { if (e.target.value !== form.username) noteUsername(e.target.value); ensureClinics(e.target.value); }}
-                    onAnimationStart={(e) => { if (e.animationName === 'hdp-autofill') noteUsername(e.target.value); }}
-                    placeholder={options.usernameHint} /></div>
-                <FieldError msg={fieldErr.username} /></div>
-              <div className="f"><label htmlFor="li-pw">Password</label>
-                <div className="input-ic"><Icon name="lock" />
-                  <input id="li-pw" type={showPw ? 'text' : 'password'} className={`input ${fieldErr.password ? 'err' : ''}`} autoComplete="current-password"
-                    value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-                  <button type="button" className="reveal" onClick={() => setShowPw(!showPw)} aria-label={showPw ? 'Hide password' : 'Show password'} aria-pressed={showPw}><Icon name={showPw ? 'eyeoff' : 'eye'} /></button></div>
-                <FieldError msg={fieldErr.password} /></div>
-              <div className="f">
-                <label htmlFor="li-clinic">Clinic</label>
-                <div className="input-ic"><Icon name="building" />
-                  <select id="li-clinic" className={`input ${fieldErr.clinic ? 'err' : ''}`}
-                    value={form.clinicId}
-                    onChange={(e) => chooseClinic(e.target.value)}
-                    disabled={clinicStatus !== 'ready' || !clinics.length}
-                    aria-invalid={fieldErr.clinic ? true : undefined}>
-                    <option value="">
-                      {!form.username.trim() ? 'Enter your user name first'
-                        : clinicStatus === 'loading' ? 'Loading clinics…'
-                        : clinics.length ? 'Choose a clinic' : 'No clinic to choose'}
-                    </option>
-                    {clinics.map((c) => <option key={c.id} value={c.id}>{clinicLabel(c)}</option>)}
-                  </select></div>
-                <FieldError msg={fieldErr.clinic} />
-                {options.local && <button type="button" className="lf-link lf-forgot-link" onClick={() => setForgot(true)}>Forgot password?</button>}
-              </div>
-              <button className="btn block lf-submit" type="submit" disabled={!!busy}>{busy === 'pw' ? <span className="spinner" /> : null}Sign in</button>
-            </form>
+            <PasswordSignIn form={form} setForm={setForm} fieldErr={fieldErr} showPw={showPw} setShowPw={setShowPw} clinicStatus={clinicStatus} clinics={clinics} options={options} busy={busy} setUserEl={setUserEl} noteUsername={noteUsername} ensureClinics={ensureClinics} chooseClinic={chooseClinic} setForgot={setForgot} submit={submit} />
           )}
 
           {nothing && <div className="banner warn"><Icon name="alert" /><span>No sign-in method is switched on. IT can restore access with <span className="mono">npm run auth:set-password -- their.email@company.com</span> on the server.</span></div>}
