@@ -487,13 +487,14 @@ details.sec .body{padding:4px 18px 18px}
 /* additions for the React app */
 a.btn{text-decoration:none}
 a.textlink{text-decoration:none}
-.spinner{display:inline-block;width:18px;height:18px;border:2px solid var(--line-2);border-top-color:var(--brand-2);border-radius:50%;animation:spin .8s linear infinite}
+.spinner{display:inline-block;width:18px;height:18px;border:2px solid var(--line-2);border-top-color:var(--brand-2);border-radius:50%}
 @keyframes spin{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){.spinner{animation-duration:2.4s}}
+@media (prefers-reduced-motion:no-preference){.spinner{animation:spin .8s linear infinite}}
+@media (prefers-reduced-motion:reduce){.spinner{animation:spin 2.4s linear infinite}}
 .loading{display:flex;gap:10px;align-items:center;justify-content:center;padding:48px;color:var(--fg-3)}
 .err-box{padding:14px 16px;border-radius:var(--r);background:var(--bad-bg);color:var(--bad-fg);font-weight:550}
 .toast.bad{background:var(--bad-fg);color:#fff}
-.field-err{border-color:var(--bad-fg)!important;box-shadow:0 0 0 1px var(--bad-fg)}
+.input.field-err{border-color:var(--bad-fg);box-shadow:0 0 0 1px var(--bad-fg)}
 .check-row{display:flex;gap:8px;align-items:center;font-size:.9rem;cursor:pointer}
 .check-row input{accent-color:var(--brand-2);width:16px;height:16px}
 .role-pills{display:flex;gap:6px;flex-wrap:wrap}
@@ -509,7 +510,6 @@ a.textlink{text-decoration:none}
 .brand-t span{opacity:.85}
 .brand-t b{font-size:1rem;font-weight:650}
 .top .brand-t{max-width:300px}
-.top .brand-logo{max-width:120px}
 
 .brand-in.stacked{flex-direction:column;align-items:flex-start;gap:14px}
 .brand-in.stacked .brand-t{font-size:.9rem}
@@ -557,7 +557,7 @@ a.textlink{text-decoration:none}
 .top .nav-btn{white-space:nowrap}
 .top-right{flex:none}
 .who-t b,.who-t small{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.top .brand-logo{height:40px!important;max-width:150px}
+.top .brand-logo{height:40px;max-width:150px}
 @media (max-width:1640px){.top.branded .who-t{display:none}}
 @media (max-width:1100px){.top .brand-logo + .brand-t{display:none}}
 @media (max-width:1280px){.top .nav-btn span{display:none}.top .nav-btn{padding:8px 10px}}
@@ -637,10 +637,9 @@ a.textlink{text-decoration:none}
 .drp-legend .sw.sel{background:var(--brand-2)}
 .drp-actions{display:flex;gap:6px;flex-wrap:wrap}
 .drp-pop.m1 .drp-month{width:266px}
-@media (max-width:640px){.drp-months{flex-direction:column}.drp-pop{left:50%;transform:translateX(-50%);position:fixed;top:auto;bottom:12px}.drp-pop.right{left:50%;right:auto}}
+@media (max-width:640px){.drp-months{flex-direction:column}.drp-pop{left:50%;transform:translateX(-50%);position:fixed;top:auto;bottom:12px;max-height:calc(100vh - 24px);overflow:auto}.drp-pop.right{left:50%;right:auto}}
 @media (max-width:640px){.drp-month + .drp-month{display:none}}
 .drp-day.sel,.drp-day.sel:hover{background:var(--brand-2);color:#fff;border-radius:8px}
-@media (max-width:640px){.drp-pop{max-height:calc(100vh - 24px);overflow:auto}}
 
 /* ---------- Form Fields (Admin Settings → Form Fields): colours for Required / Optional markers */
 .fr-scope{--fr-req-c:var(--fr-req,var(--bad-fg));--fr-opt-c:var(--fr-opt,var(--draft-fg))}
@@ -675,7 +674,7 @@ a.textlink{text-decoration:none}
 .ff-layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;align-items:start}
 .ff-layout > aside{position:sticky;top:84px}
 @media (max-width:1100px){.ff-layout{grid-template-columns:1fr}.ff-layout > aside{position:static}}
-@media (max-width:640px){.ff-table td{display:block;width:auto!important;border-top:0;padding:4px 0}.ff-table tr{display:block;border-top:1px solid var(--line);padding:8px 0}}
+@media (max-width:640px){.ff-table td{display:block;width:auto;border-top:0;padding:4px 0}.ff-table td:first-child{width:auto}.ff-table tr{display:block;border-top:1px solid var(--line);padding:8px 0}}
 
 /* ---------- My Requests: Requests | Patients switch */
 .subnav{display:flex;gap:4px;margin:-6px 0 14px;border-bottom:1px solid var(--line)}
