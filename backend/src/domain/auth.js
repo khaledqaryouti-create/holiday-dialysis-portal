@@ -1,5 +1,7 @@
 // Sign-in rules shared by API and UI (pure, dependency-free).
 
+export { isEmail as isEmailAddress } from './validation.js';
+
 export const SIGN_IN_METHODS = Object.freeze({
   local: 'Local portal password',
   ldap: 'Directory (Active Directory / LDAP)',
@@ -14,8 +16,6 @@ export const LDAP_SECURITY = Object.freeze({
 });
 
 export const DEFAULT_LDAP_FILTER = '(&(objectClass=user)(|(sAMAccountName={{username}})(userPrincipalName={{username}})(mail={{username}})))';
-
-const isEmail = (s) => typeof s === 'string' && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s.trim());
 
 /** Password policy check. Returns the list of unmet rules (empty = OK). */
 export function passwordProblems(pw, policy) {
@@ -35,7 +35,7 @@ export const passwordMessage = (problems) => (problems.length ? `The password ne
 
 /** Escape a value for use inside an LDAP search filter (RFC 4515) — prevents LDAP injection. */
 export function escapeLdapFilterValue(v) {
-  return String(v).replace(/[\\*()\0]/g, (c) => `\\${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
+  return String(v).replace(/[\\*()\0]/g, (c) => `\\${c.codePointAt(0).toString(16).padStart(2, '0')}`);
 }
 
 /** Build the user search filter from the template, inserting the escaped user name for every {{username}}. */
@@ -69,37 +69,46 @@ export function mapGroupsToAccess(groups, mappings, source) {
   };
 }
 
+const intBetween = (v, min, max) => {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= min && n <= max;
+};
+
+function ldapErrors(s, saved) {
+  const e = {};
+  if (!/^[A-Za-z0-9.-]+$/.test(String(s.ldapHost || '').trim())) e.ldapHost = 'Enter the directory server name, for example dc01.corp.example.com.';
+  if (!intBetween(s.ldapPort, 1, 65535)) e.ldapPort = 'Enter a port number (636 for LDAPS, 389 for StartTLS).';
+  if (!String(s.ldapBaseDn || '').trim() || !/=/.test(s.ldapBaseDn)) e.ldapBaseDn = 'Enter where users are searched, for example DC=corp,DC=example,DC=com.';
+  if (s.ldapBindDn && !s.ldapBindPassword && !saved.hasLdapBindPassword) e.ldapBindPassword = 'Enter the service account password.';
+  if (!String(s.ldapUserFilter || '').includes('{{username}}')) e.ldapUserFilter = 'The filter must contain {{username}}.';
+  else if ((String(s.ldapUserFilter).match(/\(/g) || []).length !== (String(s.ldapUserFilter).match(/\)/g) || []).length) e.ldapUserFilter = 'The filter has unbalanced brackets.';
+  if (!/^[A-Za-z][\w-]*$/.test(String(s.ldapEmailAttr || ''))) e.ldapEmailAttr = 'Enter an attribute name, for example mail.';
+  if (!intBetween(s.ldapTimeoutSeconds, 3, 60)) e.ldapTimeoutSeconds = 'Timeout must be 3–60 seconds.';
+  return e;
+}
+
+function microsoftErrors(s, saved) {
+  const e = {};
+  const guidOrDomain = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+)$/i;
+  if (!guidOrDomain.test(String(s.msTenantId || '').trim())) e.msTenantId = 'Enter the Directory (tenant) ID or your tenant domain, for example company.onmicrosoft.com.';
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s.msClientId || '').trim())) e.msClientId = 'Enter the Application (client) ID — a GUID.';
+  if (!s.msClientSecret && !saved.hasMsClientSecret) e.msClientSecret = 'Enter the client secret value.';
+  if (!/^https?:\/\/[^\s]+\/api\/auth\/microsoft\/callback$/.test(String(s.msRedirectUri || ''))) e.msRedirectUri = 'The redirect URI must end with /api/auth/microsoft/callback.';
+  return e;
+}
+
 /** Validate the Sign-in & Directory form. `saved` tells which secrets are already stored. */
 export function validateAuthSettings(s, saved = {}, { devMode = false } = {}) {
   const e = {};
   if (!s.localEnabled && !s.ldapEnabled && !s.msEnabled && !devMode) e.methods = 'Keep at least one sign-in method switched on.';
-  const n = (v) => Number(v);
-  if (!Number.isInteger(n(s.passwordMinLength)) || n(s.passwordMinLength) < 8 || n(s.passwordMinLength) > 64) e.passwordMinLength = 'Minimum length must be 8–64.';
-  if (!Number.isInteger(n(s.lockoutThreshold)) || n(s.lockoutThreshold) < 3 || n(s.lockoutThreshold) > 20) e.lockoutThreshold = 'Lock after 3–20 failed attempts.';
-  if (!Number.isInteger(n(s.lockoutMinutes)) || n(s.lockoutMinutes) < 1 || n(s.lockoutMinutes) > 1440) e.lockoutMinutes = 'Lock for 1–1440 minutes.';
-
-  if (s.ldapEnabled) {
-    if (!/^[A-Za-z0-9.-]+$/.test(String(s.ldapHost || '').trim())) e.ldapHost = 'Enter the directory server name, for example dc01.corp.example.com.';
-    if (!Number.isInteger(n(s.ldapPort)) || n(s.ldapPort) < 1 || n(s.ldapPort) > 65535) e.ldapPort = 'Enter a port number (636 for LDAPS, 389 for StartTLS).';
-    if (!String(s.ldapBaseDn || '').trim() || !/=/.test(s.ldapBaseDn)) e.ldapBaseDn = 'Enter where users are searched, for example DC=corp,DC=example,DC=com.';
-    if (s.ldapBindDn && !s.ldapBindPassword && !saved.hasLdapBindPassword) e.ldapBindPassword = 'Enter the service account password.';
-    if (!String(s.ldapUserFilter || '').includes('{{username}}')) e.ldapUserFilter = 'The filter must contain {{username}}.';
-    else if ((String(s.ldapUserFilter).match(/\(/g) || []).length !== (String(s.ldapUserFilter).match(/\)/g) || []).length) e.ldapUserFilter = 'The filter has unbalanced brackets.';
-    if (!/^[A-Za-z][\w-]*$/.test(String(s.ldapEmailAttr || ''))) e.ldapEmailAttr = 'Enter an attribute name, for example mail.';
-    if (!Number.isInteger(n(s.ldapTimeoutSeconds)) || n(s.ldapTimeoutSeconds) < 3 || n(s.ldapTimeoutSeconds) > 60) e.ldapTimeoutSeconds = 'Timeout must be 3–60 seconds.';
-  }
-  if (s.msEnabled) {
-    const guidOrDomain = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+)$/i;
-    if (!guidOrDomain.test(String(s.msTenantId || '').trim())) e.msTenantId = 'Enter the Directory (tenant) ID or your tenant domain, for example company.onmicrosoft.com.';
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s.msClientId || '').trim())) e.msClientId = 'Enter the Application (client) ID — a GUID.';
-    if (!s.msClientSecret && !saved.hasMsClientSecret) e.msClientSecret = 'Enter the client secret value.';
-    if (!/^https?:\/\/[^\s]+\/api\/auth\/microsoft\/callback$/.test(String(s.msRedirectUri || ''))) e.msRedirectUri = 'The redirect URI must end with /api/auth/microsoft/callback.';
-  }
+  if (!intBetween(s.passwordMinLength, 8, 64)) e.passwordMinLength = 'Minimum length must be 8–64.';
+  if (!intBetween(s.lockoutThreshold, 3, 20)) e.lockoutThreshold = 'Lock after 3–20 failed attempts.';
+  if (!intBetween(s.lockoutMinutes, 1, 1440)) e.lockoutMinutes = 'Lock for 1–1440 minutes.';
+  if (s.ldapEnabled) Object.assign(e, ldapErrors(s, saved));
+  if (s.msEnabled) Object.assign(e, microsoftErrors(s, saved));
   if (s.autoCreateUsers && !s.ldapEnabled && !s.msEnabled) e.autoCreateUsers = 'Turn on directory or Microsoft sign-in to create users automatically.';
   return e;
 }
-
-export { isEmail as isEmailAddress };
 
 /**
  * Which clinic a person works at for this session (chosen on the sign-in page).
