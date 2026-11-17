@@ -65,51 +65,12 @@ export default function RequestDetailPage() {
     ...r.comments.map((c) => ({ at: c.at, title: 'Comment', who: c.byName, text: c.text, k: 'c' })),
     ...r.communications.filter((c) => c.type === 'Resend').map((c) => ({ at: c.at, title: 'Email resent to provider', who: c.byName, text: `To ${c.to}`, k: '' })),
   ].sort((a, b) => String(a.at).localeCompare(String(b.at)));
-  const panels = [];
-  if (can('editDraft')) panels.push(<DraftPanel key="draft" r={r} nav={nav} confirm={confirm} toast={toast} />);
-  if (can('approve')) panels.push(<ClinicResponsePanel key="clinic" r={r} act={act} confirm={confirm} canPropose={can('proposeDates')} proposeBlocked={r.pendingActions.find((p) => p.action === 'proposeDates')?.reason} />);
-  if (can('acceptProposedDates')) panels.push(<AnswerProposalPanel key="answer" r={r} act={act} confirm={confirm} canAskAgain={can('requestOtherDates')} askBlocked={r.pendingActions.find((p) => p.action === 'requestOtherDates')?.reason} />);
-  if (can('sendToProvider')) panels.push(<SendPanel key="send" r={r} act={act} />);
-  if (can('recordProviderApproved')) panels.push(<RecordPanel key="record" r={r} act={act} confirm={confirm} canPropose={can('recordProviderAlternative')} />);
-  if (can('complete') || waitText) {
-    panels.push(
-      <div key="complete" className="stack" style={{ gap: 12 }}>
-        <div><h2>Completion</h2><p className="hint">{can('complete') ? 'Travel has ended. Mark the request as completed to close it.' : waitText}</p></div>
-        <button className="btn brand block" disabled={!can('complete')} onClick={async () => {
-          if (await confirm({ title: 'Mark as completed?', body: 'The request becomes read-only. Comments can still be added.', ok: 'Mark as completed', tone: 'brand' })) {
-            act(() => api.post(`/requests/${r.id}/complete`, { rowVersion: r.rowVersion }), 'Request completed');
-          }
-        }}><Icon name="flag" />Mark as completed</button>
-      </div>,
-    );
-  }
-  if (can('downloadLetter')) {
-    panels.push(
-      <div key="letter" className="stack" style={{ gap: 12 }}>
-        <div><h2>Confirmation Letter</h2><p className="hint">Generated {fmtTS(r.letterGeneratedAt || r.confirmedAt)} when sessions were confirmed.</p></div>
-        <a className="btn block" href={`/api/requests/${r.id}/letter.pdf?download=1`}><Icon name="dl" />Download confirmation letter</a>
-      </div>,
-    );
-  }
+  const panels = actionPanels({ r, can, nav, confirm, toast, act, waitText });
   const showWaiting = !panels.some((p) => ['clinic', 'send', 'record', 'answer'].includes(p.key));
 
   return (
     <>
-      <div className="crumbs"><Link className="textlink" to="/">{h.isClinicStaff ? t('nav.myRequests') : t('nav.workQueue')}</Link><span>/</span><span className="mono">{r.requestNumber}</span></div>
-      <div className="detail-head">
-        <div>
-          <div className="row" style={{ gap: 12 }}><h1>Request <span className="mono" style={{ fontSize: '.95em' }}>{r.requestNumber}</span></h1>{r.destinationType && <DestChip type={r.destinationType} />}</div>
-          <div className="meta"><span>{r.patientName || 'Patient not set'}</span><span>MRN {r.mrn ? `***${String(r.mrn).slice(-4)}` : '—'}</span><span>{r.requestingFacilityName} → {facility}</span></div>
-        </div>
-        <div className="st">
-          <StatusPill status={r.status} />
-          {r.pending && (
-            <span className="row small" style={{ gap: 6, color: r.pending.overdue ? 'var(--bad-fg)' : 'var(--pend-fg)' }}>
-              <Icon name="clock" /><b>{r.pending.days} day{r.pending.days === 1 ? '' : 's'}</b> {r.pending.kind === 'completion' ? 'since travel ended' : 'pending'}{r.pending.overdue ? ` · over the ${r.pending.target}-day target` : ''}
-            </span>
-          )}
-        </div>
-      </div>
+      <RequestHeader h={h} r={r} facility={facility} />
 
       <div className="detail-grid">
         <div className="stack">
@@ -207,6 +168,58 @@ export default function RequestDetailPage() {
     </>
   );
 }
+function RequestHeader({ h, r, facility }) {
+  return (
+    <>
+      <div className="crumbs"><Link className="textlink" to="/">{h.isClinicStaff ? t('nav.myRequests') : t('nav.workQueue')}</Link><span>/</span><span className="mono">{r.requestNumber}</span></div>
+      <div className="detail-head">
+        <div>
+          <div className="row" style={{ gap: 12 }}><h1>Request <span className="mono" style={{ fontSize: '.95em' }}>{r.requestNumber}</span></h1>{r.destinationType && <DestChip type={r.destinationType} />}</div>
+          <div className="meta"><span>{r.patientName || 'Patient not set'}</span><span>MRN {r.mrn ? `***${String(r.mrn).slice(-4)}` : '—'}</span><span>{r.requestingFacilityName} → {facility}</span></div>
+        </div>
+        <div className="st">
+          <StatusPill status={r.status} />
+          {r.pending && (
+            <span className="row small" style={{ gap: 6, color: r.pending.overdue ? 'var(--bad-fg)' : 'var(--pend-fg)' }}>
+              <Icon name="clock" /><b>{r.pending.days} day{r.pending.days === 1 ? '' : 's'}</b> {r.pending.kind === 'completion' ? 'since travel ended' : 'pending'}{r.pending.overdue ? ` · over the ${r.pending.target}-day target` : ''}
+            </span>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function actionPanels({ r, can, nav, confirm, toast, act, waitText }) {
+  const panels = [];
+  if (can('editDraft')) panels.push(<DraftPanel key="draft" r={r} nav={nav} confirm={confirm} toast={toast} />);
+  if (can('approve')) panels.push(<ClinicResponsePanel key="clinic" r={r} act={act} confirm={confirm} canPropose={can('proposeDates')} proposeBlocked={r.pendingActions.find((p) => p.action === 'proposeDates')?.reason} />);
+  if (can('acceptProposedDates')) panels.push(<AnswerProposalPanel key="answer" r={r} act={act} confirm={confirm} canAskAgain={can('requestOtherDates')} askBlocked={r.pendingActions.find((p) => p.action === 'requestOtherDates')?.reason} />);
+  if (can('sendToProvider')) panels.push(<SendPanel key="send" r={r} act={act} />);
+  if (can('recordProviderApproved')) panels.push(<RecordPanel key="record" r={r} act={act} confirm={confirm} canPropose={can('recordProviderAlternative')} />);
+  if (can('complete') || waitText) {
+    panels.push(
+      <div key="complete" className="stack" style={{ gap: 12 }}>
+        <div><h2>Completion</h2><p className="hint">{can('complete') ? 'Travel has ended. Mark the request as completed to close it.' : waitText}</p></div>
+        <button className="btn brand block" disabled={!can('complete')} onClick={async () => {
+          if (await confirm({ title: 'Mark as completed?', body: 'The request becomes read-only. Comments can still be added.', ok: 'Mark as completed', tone: 'brand' })) {
+            act(() => api.post(`/requests/${r.id}/complete`, { rowVersion: r.rowVersion }), 'Request completed');
+          }
+        }}><Icon name="flag" />Mark as completed</button>
+      </div>,
+    );
+  }
+  if (can('downloadLetter')) {
+    panels.push(
+      <div key="letter" className="stack" style={{ gap: 12 }}>
+        <div><h2>Confirmation Letter</h2><p className="hint">Generated {fmtTS(r.letterGeneratedAt || r.confirmedAt)} when sessions were confirmed.</p></div>
+        <a className="btn block" href={`/api/requests/${r.id}/letter.pdf?download=1`}><Icon name="dl" />Download confirmation letter</a>
+      </div>,
+    );
+  }
+  return panels;
+}
+
 const Frag = ({ k, v }) => <><dt>{k}</dt><dd>{v ?? '—'}</dd></>;
 
 // ---------------------------------------------------------------- Draft
@@ -376,24 +389,11 @@ function RecordPanel({ r, act, confirm, canPropose }) {
         {[['Approved', 'Approved'], ...(canPropose ? [['Alternative', 'Other dates']] : []), ['Declined', 'Declined']].map(([o, l]) => <label key={o}><input type="radio" name="resp" checked={outcome === o} onChange={() => { setOutcome(o); setErr({}); }} />{l}</label>)}
       </div>
       {outcome === 'Alternative' ? (
-        <>
-          <p className="hint" style={{ margin: 0 }}>The provider can't take {fmtRange(r.travelStart, r.travelEnd)} but offered other dates. Enter them; the requester chooses.</p>
-          <DateOptionsEditor options={options} setOptions={(o) => { setOptions(o); setErr({}); }} err={err} minDate={todayIso()} reference={{ start: r.travelStart, end: r.travelEnd, label: 'Requested' }} />
-          <div><label htmlFor="rp-notes-alt" className="small" style={{ fontWeight: 600 }}>Notes from the provider</label>
-            <textarea id="rp-notes-alt" className="input" style={{ marginTop: 6, minHeight: 64 }} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Morning shifts only" /></div>
-        </>
+        <OtherDatesBranch r={r} options={options} setOptions={setOptions} setErr={setErr} err={err} notes={notes} setNotes={setNotes} />
       ) : outcome === 'Approved' ? (
-        <>
-          <div><label className="small" style={{ fontWeight: 600 }}>Confirmed session dates <span style={{ color: 'var(--bad-fg)' }}>*</span></label>
-            <div style={{ marginTop: 6 }}><SessionsPicker r={r} start={start} end={end} invalid={!!err.confirmedDates} onChange={(v) => { setStart(v.start); setEnd(v.end); setErr({}); }} /></div>
-            <p className="hint" style={{ marginTop: 4 }}>Requested: {fmtRange(r.travelStart, r.travelEnd)}</p><FieldError msg={err.confirmedDates} /></div>
-          <div><label htmlFor="rp-notes" className="small" style={{ fontWeight: 600 }}>Notes from the provider</label>
-            <textarea id="rp-notes" className="input" style={{ marginTop: 6, minHeight: 70 }} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. arrive 30 minutes before the first session" /></div>
-        </>
+        <ApprovedBranch r={r} start={start} end={end} notes={notes} err={err} setStart={setStart} setEnd={setEnd} setNotes={setNotes} setErr={setErr} />
       ) : (
-        <div><label htmlFor="rp-reason" className="small" style={{ fontWeight: 600 }}>Decline reason <span style={{ color: 'var(--bad-fg)' }}>*</span></label>
-          <textarea id="rp-reason" className="input" style={{ marginTop: 6 }} maxLength={REASON_MAX} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason given in the provider’s reply — at least 10 characters" />
-          <div className="counter"><span>Minimum 10 characters</span><span>{reason.length} / {REASON_MAX}</span></div><FieldError msg={err.reason} /></div>
+        <DeclinedBranch reason={reason} setReason={setReason} err={err} />
       )}
       <div><span className="small" style={{ fontWeight: 600 }}>Provider reply attachment</span>
         {file ? (
@@ -412,6 +412,37 @@ function RecordPanel({ r, act, confirm, canPropose }) {
       </button>
       <button className="btn ghost sm" onClick={() => act(() => api.post(`/requests/${r.id}/resend-to-provider`, { rowVersion: r.rowVersion }), 'Email resent')}><Icon name="send" />Resend email to provider</button>
     </div>
+  );
+}
+
+function OtherDatesBranch({ r, options, setOptions, setErr, err, notes, setNotes }) {
+  return (
+    <>
+      <p className="hint" style={{ margin: 0 }}>The provider can't take {fmtRange(r.travelStart, r.travelEnd)} but offered other dates. Enter them; the requester chooses.</p>
+      <DateOptionsEditor options={options} setOptions={(o) => { setOptions(o); setErr({}); }} err={err} minDate={todayIso()} reference={{ start: r.travelStart, end: r.travelEnd, label: 'Requested' }} />
+      <div><label htmlFor="rp-notes-alt" className="small" style={{ fontWeight: 600 }}>Notes from the provider</label>
+        <textarea id="rp-notes-alt" className="input" style={{ marginTop: 6, minHeight: 64 }} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Morning shifts only" /></div>
+    </>
+  );
+}
+
+function ApprovedBranch({ r, start, end, notes, err, setStart, setEnd, setNotes, setErr }) {
+  return (
+    <>
+      <div><label className="small" style={{ fontWeight: 600 }}>Confirmed session dates <span style={{ color: 'var(--bad-fg)' }}>*</span></label>
+        <div style={{ marginTop: 6 }}><SessionsPicker r={r} start={start} end={end} invalid={!!err.confirmedDates} onChange={(v) => { setStart(v.start); setEnd(v.end); setErr({}); }} /></div>
+        <p className="hint" style={{ marginTop: 4 }}>Requested: {fmtRange(r.travelStart, r.travelEnd)}</p><FieldError msg={err.confirmedDates} /></div>
+      <div><label htmlFor="rp-notes" className="small" style={{ fontWeight: 600 }}>Notes from the provider</label>
+        <textarea id="rp-notes" className="input" style={{ marginTop: 6, minHeight: 70 }} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. arrive 30 minutes before the first session" /></div>
+    </>
+  );
+}
+
+function DeclinedBranch({ reason, setReason, err }) {
+  return (
+    <div><label htmlFor="rp-reason" className="small" style={{ fontWeight: 600 }}>Decline reason <span style={{ color: 'var(--bad-fg)' }}>*</span></label>
+      <textarea id="rp-reason" className="input" style={{ marginTop: 6 }} maxLength={REASON_MAX} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason given in the provider’s reply — at least 10 characters" />
+      <div className="counter"><span>Minimum 10 characters</span><span>{reason.length} / {REASON_MAX}</span></div><FieldError msg={err.reason} /></div>
   );
 }
 
