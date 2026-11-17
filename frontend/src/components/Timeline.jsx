@@ -1,6 +1,17 @@
 import { Icon } from './Icon.jsx';
 import { fmtTS } from '../lib/format.js';
 
+function decisionMilestone(r, find, internal, proposed) {
+  const dec = find(['Confirmed', 'Rejected']);
+  return {
+    label: dec ? (dec.to === 'Confirmed' ? (dec.action === 'acceptProposedDates' ? 'Other dates agreed' : internal ? 'Clinic approved' : 'Provider approved') : (internal ? 'Clinic rejected' : 'Provider declined'))
+      : r.status === 'AlternativeDatesProposed' ? 'Other dates proposed' : (internal ? 'Clinic response' : 'Provider response'),
+    ev: dec, bad: dec?.to === 'Rejected',
+    wait: r.status === 'AlternativeDatesProposed' ? 'Requesting clinic' : internal ? 'Receiving clinic' : 'Provider',
+    sub: r.status === 'AlternativeDatesProposed' ? 'Waiting: requesting clinic to choose' : proposed && !dec ? `Waiting: ${internal ? 'receiving clinic' : 'provider'} (other dates asked)` : undefined,
+  };
+}
+
 /** Milestones derived from the append-only status history (spec §7 "Status timeline"). */
 export function milestones(r) {
   const H = r.history || [];
@@ -9,16 +20,10 @@ export function milestones(r) {
   if (r.status === 'Draft') return [{ label: 'Draft', cur: true, sub: 'Not submitted' }];
   const ms = [{ label: 'Submitted', ev: find(['PendingClinicResponse', 'PendingProviderEmail']) }];
   if (!internal) ms.push({ label: 'Emailed to provider', ev: find(['SentToProviderAwaitingResponse']), wait: 'Coordination team' });
-  const dec = find(['Confirmed', 'Rejected']);
   const proposed = H.some((h) => h.to === 'AlternativeDatesProposed');
-  ms.push({
-    label: dec ? (dec.to === 'Confirmed' ? (dec.action === 'acceptProposedDates' ? 'Other dates agreed' : internal ? 'Clinic approved' : 'Provider approved') : (internal ? 'Clinic rejected' : 'Provider declined'))
-      : r.status === 'AlternativeDatesProposed' ? 'Other dates proposed' : (internal ? 'Clinic response' : 'Provider response'),
-    ev: dec, bad: dec?.to === 'Rejected',
-    wait: r.status === 'AlternativeDatesProposed' ? 'Requesting clinic' : internal ? 'Receiving clinic' : 'Provider',
-    sub: r.status === 'AlternativeDatesProposed' ? 'Waiting: requesting clinic to choose' : proposed && !dec ? `Waiting: ${internal ? 'receiving clinic' : 'provider'} (other dates asked)` : undefined,
-  });
-  if (dec?.to !== 'Rejected') ms.push({ label: 'Completed', ev: find(['Completed']), wait: 'After travel ends' });
+  const decision = decisionMilestone(r, find, internal, proposed);
+  ms.push(decision);
+  if (decision.ev?.to !== 'Rejected') ms.push({ label: 'Completed', ev: find(['Completed']), wait: 'After travel ends' });
   const wd = find(['Withdrawn']);
   if (wd) {
     const i = ms.findIndex((m) => !m.ev);
