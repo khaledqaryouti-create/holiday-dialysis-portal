@@ -141,66 +141,10 @@ export default function BrandingPage() {
       </label>
 
       {/* ------------------------------------------------------------ logo */}
-      <section className="card pad stack" style={{ gap: 14, marginBottom: 16 }}>
-        <h3 className="row" style={{ gap: 8 }}><Icon name="image" />Logo</h3>
-        <div className={`logo-drop ${drag ? 'drag' : ''}`}
-          onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
-          onDrop={(e) => { e.preventDefault(); setDrag(false); upload(e.dataTransfer.files?.[0]); }}>
-          <div className="logo-box">{logoUrl ? <img src={logoUrl} alt="Current logo" /> : <span className="muted small">No logo</span>}</div>
-          <div className="stack" style={{ gap: 8, flex: 1, minWidth: 220 }}>
-            <div className="row" style={{ gap: 8 }}>
-              <button type="button" className="btn" onClick={() => fileRef.current?.click()} disabled={busy === 'logo'}>
-                {busy === 'logo' ? <span className="spinner" /> : <Icon name="upload" />}{d.hasLogo ? 'Replace logo' : 'Upload logo'}</button>
-              {d.hasLogo && <button type="button" className="btn danger" onClick={removeLogo}>Remove</button>}
-            </div>
-            <input ref={fileRef} type="file" hidden accept={Object.keys(LOGO_TYPES).join(',')} onChange={(e) => upload(e.target.files?.[0])} aria-label="Logo file" />
-            <div className="help">{Object.values(LOGO_TYPES).join(', ')} up to 1 MB. A wide logo about 600 × 160 px works best. Drag a file here or use the button.
-              {d.hasLogo && <> Current: {LOGO_TYPES[d.logoMime]}, {fmtSize(d.logoSize)}.</>}</div>
-            <FieldError msg={err.logo} />
-            <label className="check-row"><input type="checkbox" checked={f.logoOnWhite} onChange={set('logoOnWhite')} /> Put the logo on a white background (use this if it is made for white paper)</label>
-            <div className="row" style={{ gap: 10, alignItems: 'center' }}>
-              <label htmlFor="headerText" className="small" style={{ fontWeight: 600 }}>Next to the logo in the header</label>
-              <select id="headerText" className="input" style={{ width: 'auto' }} value={f.headerText} onChange={set('headerText')} disabled={!d.hasLogo}>
-                {Object.entries(HEADER_TEXT).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-              </select>
-            </div>
-            <div className="help">If your logo already shows the company name, choose <b>Portal title only</b> to keep the header short. (Needs a logo.)</div>
-          </div>
-        </div>
-        <p className="small muted" style={{ margin: 0 }}>A new logo is stored straight away and goes live immediately if branding is already showing.</p>
-      </section>
+      <LogoBlock drag={drag} setDrag={setDrag} upload={upload} logoUrl={logoUrl} busy={busy} d={d} fileRef={fileRef} removeLogo={removeLogo} err={err} f={f} set={set} />
 
       {/* ------------------------------------------------------------ photo + colour */}
-      <section className="card pad stack" style={{ gap: 14, marginBottom: 16 }}>
-        <h3 className="row" style={{ gap: 8 }}><Icon name="palette" />Sign-in picture and brand colour</h3>
-        <div className="logo-drop">
-          <div className="logo-box photo-box">{photoUrl ? <img src={photoUrl} alt="Current sign-in picture" /> : <span className="muted small">No picture</span>}</div>
-          <div className="stack" style={{ gap: 8, flex: 1, minWidth: 220 }}>
-            <div className="row" style={{ gap: 8 }}>
-              <button type="button" className="btn" onClick={() => photoRef.current?.click()} disabled={busy === 'photo'}>
-                {busy === 'photo' ? <span className="spinner" /> : <Icon name="upload" />}{d.hasLoginImage ? 'Replace picture' : 'Upload picture'}</button>
-              {d.hasLoginImage && <button type="button" className="btn danger" onClick={removePhoto}>Remove</button>}
-            </div>
-            <input ref={photoRef} type="file" hidden accept={Object.keys(PHOTO_TYPES).join(',')} onChange={(e) => uploadPhoto(e.target.files?.[0])} aria-label="Sign-in picture file" />
-            <div className="help">Shown behind the left side of the sign-in page, under a green tint so the text stays readable. A landscape {Object.values(PHOTO_TYPES).join(', ')} photo about 1600 × 1200 px, up to 3 MB. Use only photos your company has the rights to.
-              {d.hasLoginImage && <> Current: {fmtSize(d.loginImageSize)}.</>}</div>
-            <FieldError msg={err.loginImage} />
-          </div>
-        </div>
-        <div className="form-grid">
-          <Field err={err} id="accentColor" label="Brand colour" help="Replaces the portal's orange: main buttons, the active menu tab and highlights. Leave empty for the standard orange.">
-            <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
-              <input type="color" aria-label="Choose brand colour" value={colourOk ? f.accentColor : '#d65a1a'} onChange={(e) => setF({ ...f, accentColor: e.target.value })} style={{ width: 46, height: 40, padding: 2, border: '1px solid var(--line-2)', borderRadius: 6, background: 'var(--surface)', flex: 'none' }} />
-              {input('accentColor', { placeholder: '#d65a1a', style: { maxWidth: 140 }, maxLength: 7 })}
-              {logoUrl && <button type="button" className="btn" onClick={pickFromLogo}>Pick from logo</button>}
-              {f.accentColor && <button type="button" className="btn ghost" onClick={() => setF({ ...f, accentColor: '' })}>Reset</button>}
-            </div>
-            {colourOk && <div className="row small" style={{ gap: 8, marginTop: 8 }}>
-              <span className="btn sm" style={{ background: f.accentColor, borderColor: f.accentColor, color: '#fff', pointerEvents: 'none' }}>New Request</span>
-              <span className="muted">White text contrast {contrastRatio(f.accentColor, '#ffffff').toFixed(1)}:1</span></div>}
-          </Field>
-        </div>
-      </section>
+      <ColourBlock photoUrl={photoUrl} busy={busy} d={d} photoRef={photoRef} removePhoto={removePhoto} uploadPhoto={uploadPhoto} err={err} f={f} setF={setF} input={input} colourOk={colourOk} logoUrl={logoUrl} pickFromLogo={pickFromLogo} />
 
       {/* ------------------------------------------------------------ names */}
       <section className="card pad stack" style={{ gap: 14, marginBottom: 16 }}>
@@ -213,44 +157,10 @@ export default function BrandingPage() {
       </section>
 
       {/* ------------------------------------------------------------ sign-in page */}
-      <section className="card pad stack" style={{ gap: 14, marginBottom: 16 }}>
-        <h3 className="row" style={{ gap: 8 }}><Icon name="shield" />Sign-in page text</h3>
-        <p className="small muted" style={{ margin: 0 }}>Every box is optional. Leave one empty to keep the sign-in page's standard text (shown in grey).</p>
-        <div className="eyebrow">Left panel</div>
-        <div className="form-grid">
-          <Field err={err} id="loginHeadline" label="Tagline" help="One short phrase per line (up to 4). The last line is shown bold in the brand colour. Leave empty for the standard tagline.">
-            <textarea id="loginHeadline" className={`input ${err.loginHeadline ? 'err' : ''}`} rows={4} value={f.loginHeadline} onChange={set('loginHeadline')} maxLength={BRANDING_LIMITS.loginHeadline} placeholder={DEFAULT_BRANDING.loginHeadline} /></Field>
-          <Field err={err} id="loginMessage" label="Message" help="Leave empty for the standard text.">
-            <textarea id="loginMessage" className={`input ${err.loginMessage ? 'err' : ''}`} rows={3} value={f.loginMessage} onChange={set('loginMessage')} maxLength={BRANDING_LIMITS.loginMessage} placeholder={DEFAULT_BRANDING.loginMessage} /></Field>
-          {[1, 2, 3].map((n) => (
-            <Field key={n} err={err} id={`loginStep${n}`} label={`Step ${n}`}>{input(`loginStep${n}`, { placeholder: STD.loginSteps[n - 1] })}</Field>
-          ))}
-        </div>
-        <div className="eyebrow">Sign-in form</div>
-        <div className="form-grid">
-          <Field err={err} id="signInTitle" label="Title">{input('signInTitle', { placeholder: STD.signInTitle })}</Field>
-          <Field err={err} id="signInSubtitle" label="Instructions">
-            <textarea id="signInSubtitle" className={`input ${err.signInSubtitle ? 'err' : ''}`} rows={2} value={f.signInSubtitle} onChange={set('signInSubtitle')} maxLength={BRANDING_LIMITS.signInSubtitle} placeholder={STD.signInSubtitle} /></Field>
-          <Field err={err} id="signInNote" label="Note under the form" help="E.g. who to call for access. Untick below to hide the note, such as the sample-account password, before go-live.">
-            <textarea id="signInNote" className={`input ${err.signInNote ? 'err' : ''}`} rows={2} value={f.signInNote} onChange={set('signInNote')} maxLength={BRANDING_LIMITS.signInNote} placeholder={STD.signInNote} disabled={!f.showSignInNote} /></Field>
-        </div>
-        <label className="check-row"><input type="checkbox" checked={f.showSignInNote} onChange={set('showSignInNote')} /> Show the note under the sign-in form</label>
-      </section>
+      <SignInTextBlock err={err} f={f} set={set} input={input} />
 
       {/* ------------------------------------------------------------ contact */}
-      <section className="card pad stack" style={{ gap: 14, marginBottom: 16 }}>
-        <h3 className="row" style={{ gap: 8 }}><Icon name="phone" />Contact information</h3>
-        <div className="form-grid">
-          <Field err={err} id="contactPhone" label="Phone">{input('contactPhone', { type: 'tel', placeholder: '+966 11 555 0100', dir: 'ltr' })}</Field>
-          <Field err={err} id="contactEmail" label="Email">{input('contactEmail', { type: 'email', placeholder: 'support@yourcompany.com' })}</Field>
-          <Field err={err} id="contactWebsite" label="Website">{input('contactWebsite', { placeholder: 'www.yourcompany.com' })}</Field>
-          <Field err={err} id="contactAddress" label="Address">
-            <textarea id="contactAddress" className={`input ${err.contactAddress ? 'err' : ''}`} rows={2} value={f.contactAddress} onChange={set('contactAddress')} maxLength={BRANDING_LIMITS.contactAddress} placeholder={'King Fahd Road, Riyadh 12345\nSaudi Arabia'} /></Field>
-          <Field err={err} id="contactHours" label="Support hours">{input('contactHours', { placeholder: 'Sunday–Thursday, 8:00–17:00' })}</Field>
-        </div>
-        <label className="check-row"><input type="checkbox" checked={f.showContactOnLogin} onChange={set('showContactOnLogin')} /> Show contact details on the sign-in page</label>
-        <label className="check-row"><input type="checkbox" checked={f.showContactInHeader} onChange={set('showContactInHeader')} /> Show a Contact button in the header (contact details are also on the Help page)</label>
-      </section>
+      <ContactBlock err={err} f={f} set={set} input={input} />
 
       {/* ------------------------------------------------------------ preview */}
       <section className="card pad stack" style={{ gap: 12, marginBottom: 16 }}>
@@ -279,5 +189,119 @@ export default function BrandingPage() {
         <button className="btn primary" onClick={save} disabled={!!busy}>{busy === 'save' ? <span className="spinner" /> : <Icon name="save" />}Save branding</button>
       </div>
     </>
+  );
+}
+
+function LogoBlock({ drag, setDrag, upload, logoUrl, busy, d, fileRef, removeLogo, err, f, set }) {
+  return (
+    <section className="card pad stack" style={{ gap: 14, marginBottom: 16 }}>
+      <h3 className="row" style={{ gap: 8 }}><Icon name="image" />Logo</h3>
+      <div className={`logo-drop ${drag ? 'drag' : ''}`}
+        onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
+        onDrop={(e) => { e.preventDefault(); setDrag(false); upload(e.dataTransfer.files?.[0]); }}>
+        <div className="logo-box">{logoUrl ? <img src={logoUrl} alt="Current logo" /> : <span className="muted small">No logo</span>}</div>
+        <div className="stack" style={{ gap: 8, flex: 1, minWidth: 220 }}>
+          <div className="row" style={{ gap: 8 }}>
+            <button type="button" className="btn" onClick={() => fileRef.current?.click()} disabled={busy === 'logo'}>
+              {busy === 'logo' ? <span className="spinner" /> : <Icon name="upload" />}{d.hasLogo ? 'Replace logo' : 'Upload logo'}</button>
+            {d.hasLogo && <button type="button" className="btn danger" onClick={removeLogo}>Remove</button>}
+          </div>
+          <input ref={fileRef} type="file" hidden accept={Object.keys(LOGO_TYPES).join(',')} onChange={(e) => upload(e.target.files?.[0])} aria-label="Logo file" />
+          <div className="help">{Object.values(LOGO_TYPES).join(', ')} up to 1 MB. A wide logo about 600 × 160 px works best. Drag a file here or use the button.
+            {d.hasLogo && <> Current: {LOGO_TYPES[d.logoMime]}, {fmtSize(d.logoSize)}.</>}</div>
+          <FieldError msg={err.logo} />
+          <label className="check-row"><input type="checkbox" checked={f.logoOnWhite} onChange={set('logoOnWhite')} /> Put the logo on a white background (use this if it is made for white paper)</label>
+          <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+            <label htmlFor="headerText" className="small" style={{ fontWeight: 600 }}>Next to the logo in the header</label>
+            <select id="headerText" className="input" style={{ width: 'auto' }} value={f.headerText} onChange={set('headerText')} disabled={!d.hasLogo}>
+              {Object.entries(HEADER_TEXT).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            </select>
+          </div>
+          <div className="help">If your logo already shows the company name, choose <b>Portal title only</b> to keep the header short. (Needs a logo.)</div>
+        </div>
+      </div>
+      <p className="small muted" style={{ margin: 0 }}>A new logo is stored straight away and goes live immediately if branding is already showing.</p>
+    </section>
+  );
+}
+
+function ColourBlock({ photoUrl, busy, d, photoRef, removePhoto, uploadPhoto, err, f, setF, input, colourOk, logoUrl, pickFromLogo }) {
+  return (
+    <section className="card pad stack" style={{ gap: 14, marginBottom: 16 }}>
+      <h3 className="row" style={{ gap: 8 }}><Icon name="palette" />Sign-in picture and brand colour</h3>
+      <div className="logo-drop">
+        <div className="logo-box photo-box">{photoUrl ? <img src={photoUrl} alt="Current sign-in picture" /> : <span className="muted small">No picture</span>}</div>
+        <div className="stack" style={{ gap: 8, flex: 1, minWidth: 220 }}>
+          <div className="row" style={{ gap: 8 }}>
+            <button type="button" className="btn" onClick={() => photoRef.current?.click()} disabled={busy === 'photo'}>
+              {busy === 'photo' ? <span className="spinner" /> : <Icon name="upload" />}{d.hasLoginImage ? 'Replace picture' : 'Upload picture'}</button>
+            {d.hasLoginImage && <button type="button" className="btn danger" onClick={removePhoto}>Remove</button>}
+          </div>
+          <input ref={photoRef} type="file" hidden accept={Object.keys(PHOTO_TYPES).join(',')} onChange={(e) => uploadPhoto(e.target.files?.[0])} aria-label="Sign-in picture file" />
+          <div className="help">Shown behind the left side of the sign-in page, under a green tint so the text stays readable. A landscape {Object.values(PHOTO_TYPES).join(', ')} photo about 1600 × 1200 px, up to 3 MB. Use only photos your company has the rights to.
+            {d.hasLoginImage && <> Current: {fmtSize(d.loginImageSize)}.</>}</div>
+          <FieldError msg={err.loginImage} />
+        </div>
+      </div>
+      <div className="form-grid">
+        <Field err={err} id="accentColor" label="Brand colour" help="Replaces the portal's orange: main buttons, the active menu tab and highlights. Leave empty for the standard orange.">
+          <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
+            <input type="color" aria-label="Choose brand colour" value={colourOk ? f.accentColor : '#d65a1a'} onChange={(e) => setF({ ...f, accentColor: e.target.value })} style={{ width: 46, height: 40, padding: 2, border: '1px solid var(--line-2)', borderRadius: 6, background: 'var(--surface)', flex: 'none' }} />
+            {input('accentColor', { placeholder: '#d65a1a', style: { maxWidth: 140 }, maxLength: 7 })}
+            {logoUrl && <button type="button" className="btn" onClick={pickFromLogo}>Pick from logo</button>}
+            {f.accentColor && <button type="button" className="btn ghost" onClick={() => setF({ ...f, accentColor: '' })}>Reset</button>}
+          </div>
+          {colourOk && <div className="row small" style={{ gap: 8, marginTop: 8 }}>
+            <span className="btn sm" style={{ background: f.accentColor, borderColor: f.accentColor, color: '#fff', pointerEvents: 'none' }}>New Request</span>
+            <span className="muted">White text contrast {contrastRatio(f.accentColor, '#ffffff').toFixed(1)}:1</span></div>}
+        </Field>
+      </div>
+    </section>
+  );
+}
+
+function SignInTextBlock({ err, f, set, input }) {
+  return (
+    <section className="card pad stack" style={{ gap: 14, marginBottom: 16 }}>
+      <h3 className="row" style={{ gap: 8 }}><Icon name="shield" />Sign-in page text</h3>
+      <p className="small muted" style={{ margin: 0 }}>Every box is optional. Leave one empty to keep the sign-in page's standard text (shown in grey).</p>
+      <div className="eyebrow">Left panel</div>
+      <div className="form-grid">
+        <Field err={err} id="loginHeadline" label="Tagline" help="One short phrase per line (up to 4). The last line is shown bold in the brand colour. Leave empty for the standard tagline.">
+          <textarea id="loginHeadline" className={`input ${err.loginHeadline ? 'err' : ''}`} rows={4} value={f.loginHeadline} onChange={set('loginHeadline')} maxLength={BRANDING_LIMITS.loginHeadline} placeholder={DEFAULT_BRANDING.loginHeadline} /></Field>
+        <Field err={err} id="loginMessage" label="Message" help="Leave empty for the standard text.">
+          <textarea id="loginMessage" className={`input ${err.loginMessage ? 'err' : ''}`} rows={3} value={f.loginMessage} onChange={set('loginMessage')} maxLength={BRANDING_LIMITS.loginMessage} placeholder={DEFAULT_BRANDING.loginMessage} /></Field>
+        {[1, 2, 3].map((n) => (
+          <Field key={n} err={err} id={`loginStep${n}`} label={`Step ${n}`}>{input(`loginStep${n}`, { placeholder: STD.loginSteps[n - 1] })}</Field>
+        ))}
+      </div>
+      <div className="eyebrow">Sign-in form</div>
+      <div className="form-grid">
+        <Field err={err} id="signInTitle" label="Title">{input('signInTitle', { placeholder: STD.signInTitle })}</Field>
+        <Field err={err} id="signInSubtitle" label="Instructions">
+          <textarea id="signInSubtitle" className={`input ${err.signInSubtitle ? 'err' : ''}`} rows={2} value={f.signInSubtitle} onChange={set('signInSubtitle')} maxLength={BRANDING_LIMITS.signInSubtitle} placeholder={STD.signInSubtitle} /></Field>
+        <Field err={err} id="signInNote" label="Note under the form" help="E.g. who to call for access. Untick below to hide the note, such as the sample-account password, before go-live.">
+          <textarea id="signInNote" className={`input ${err.signInNote ? 'err' : ''}`} rows={2} value={f.signInNote} onChange={set('signInNote')} maxLength={BRANDING_LIMITS.signInNote} placeholder={STD.signInNote} disabled={!f.showSignInNote} /></Field>
+      </div>
+      <label className="check-row"><input type="checkbox" checked={f.showSignInNote} onChange={set('showSignInNote')} /> Show the note under the sign-in form</label>
+    </section>
+  );
+}
+
+function ContactBlock({ err, f, set, input }) {
+  return (
+    <section className="card pad stack" style={{ gap: 14, marginBottom: 16 }}>
+      <h3 className="row" style={{ gap: 8 }}><Icon name="phone" />Contact information</h3>
+      <div className="form-grid">
+        <Field err={err} id="contactPhone" label="Phone">{input('contactPhone', { type: 'tel', placeholder: '+966 11 555 0100', dir: 'ltr' })}</Field>
+        <Field err={err} id="contactEmail" label="Email">{input('contactEmail', { type: 'email', placeholder: 'support@yourcompany.com' })}</Field>
+        <Field err={err} id="contactWebsite" label="Website">{input('contactWebsite', { placeholder: 'www.yourcompany.com' })}</Field>
+        <Field err={err} id="contactAddress" label="Address">
+          <textarea id="contactAddress" className={`input ${err.contactAddress ? 'err' : ''}`} rows={2} value={f.contactAddress} onChange={set('contactAddress')} maxLength={BRANDING_LIMITS.contactAddress} placeholder={'King Fahd Road, Riyadh 12345\nSaudi Arabia'} /></Field>
+        <Field err={err} id="contactHours" label="Support hours">{input('contactHours', { placeholder: 'Sunday–Thursday, 8:00–17:00' })}</Field>
+      </div>
+      <label className="check-row"><input type="checkbox" checked={f.showContactOnLogin} onChange={set('showContactOnLogin')} /> Show contact details on the sign-in page</label>
+      <label className="check-row"><input type="checkbox" checked={f.showContactInHeader} onChange={set('showContactInHeader')} /> Show a Contact button in the header (contact details are also on the Help page)</label>
+    </section>
   );
 }
