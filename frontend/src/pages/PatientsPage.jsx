@@ -167,21 +167,9 @@ function PatientForm({ p: init, clinics, vr, onClose, onSaved }) {
         <div className="f"><label htmlFor="pf-mrn">MRN *</label>
           <input id="pf-mrn" className={`input mono ${err.mrn ? 'err' : ''}`} inputMode="numeric" value={f.mrn} onChange={set('mrn')} maxLength={vr.mrn.max} placeholder={vr.mrn.chars === 'digits' ? 'Numbers only' : 'Letters or digits'} autoComplete="off" />
           <FieldError msg={err.mrn} /></div>
-        <div className="f"><label htmlFor="pf-clinic">Home clinic *</label>
-          <select id="pf-clinic" className={`select input ${err.homeFacilityId ? 'err' : ''}`} value={f.homeFacilityId} onChange={set('homeFacilityId')} disabled={clinics.length === 1}>
-            <option value="">Choose clinic</option>{clinics.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select><FieldError msg={err.homeFacilityId} /></div>
+        <PatientClinicField clinics={clinics} f={f} err={err} set={set} />
       </div>
-      <div className="two">
-        <div className="f"><label htmlFor="pf-idtype">ID type *</label>
-          <select id="pf-idtype" className="select input" value={f.identifierType} onChange={set('identifierType')}>
-            <option value="NationalId">National ID / Iqama</option><option value="Passport">Passport</option>
-          </select></div>
-        <div className="f"><label htmlFor="pf-id">ID number {editing ? '' : '*'}</label>
-          <input id="pf-id" className={`input mono ${err.identifier ? 'err' : ''}`} value={f.identifier} onChange={set('identifier')} autoComplete="off"
-            maxLength={idRule.max} placeholder={editing ? `${init.identifierMasked} — leave empty to keep` : idRule.min === idRule.max ? `${idRule.min} ${idRule.chars === 'digits' ? 'digits' : 'characters'}` : `${idRule.min}–${idRule.max} ${idRule.chars === 'digits' ? 'digits' : 'letters or digits'}`} />
-          <FieldError msg={err.identifier} /></div>
-      </div>
+      <PatientIdentifierFields editing={editing} f={f} err={err} set={set} idRule={idRule} init={init} />
       <div className="two">
         <div className="f"><label htmlFor="pf-mod">Modality</label>
           <select id="pf-mod" className="select input" value={f.modality} onChange={set('modality')}>
@@ -197,5 +185,29 @@ function PatientForm({ p: init, clinics, vr, onClose, onSaved }) {
       {editing && <p className="small muted" style={{ marginTop: 10 }}>Registered {fmtTS(init.createdAt)}{init.createdBy ? ` by ${init.createdBy}` : ''}{init.requestCount ? ` · ${init.requestCount} request${init.requestCount === 1 ? '' : 's'}` : ''}</p>}
       {!editing && <p className="small muted" style={{ marginTop: 10 }}><Icon name="lock" size={13} /> The ID number is stored encrypted and only the last 2 digits are shown.</p>}
     </Modal>
+  );
+}
+
+function PatientClinicField({ clinics, f, err, set }) {
+  return (
+    <div className="f"><label htmlFor="pf-clinic">Home clinic *</label>
+      <select id="pf-clinic" className={`select input ${err.homeFacilityId ? 'err' : ''}`} value={f.homeFacilityId} onChange={set('homeFacilityId')} disabled={clinics.length === 1}>
+        <option value="">Choose clinic</option>{clinics.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+      </select><FieldError msg={err.homeFacilityId} /></div>
+  );
+}
+
+function PatientIdentifierFields({ editing, f, err, set, idRule, init }) {
+  return (
+    <div className="two">
+      <div className="f"><label htmlFor="pf-idtype">ID type *</label>
+        <select id="pf-idtype" className="select input" value={f.identifierType} onChange={set('identifierType')}>
+          <option value="NationalId">National ID / Iqama</option><option value="Passport">Passport</option>
+        </select></div>
+      <div className="f"><label htmlFor="pf-id">ID number {editing ? '' : '*'}</label>
+        <input id="pf-id" className={`input mono ${err.identifier ? 'err' : ''}`} value={f.identifier} onChange={set('identifier')} autoComplete="off"
+          maxLength={idRule.max} placeholder={editing ? `${init.identifierMasked} — leave empty to keep` : idRule.min === idRule.max ? `${idRule.min} ${idRule.chars === 'digits' ? 'digits' : 'characters'}` : `${idRule.min}–${idRule.max} ${idRule.chars === 'digits' ? 'digits' : 'letters or digits'}`} />
+        <FieldError msg={err.identifier} /></div>
+    </div>
   );
 }
