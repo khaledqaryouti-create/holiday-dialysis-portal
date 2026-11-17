@@ -6,6 +6,40 @@ import { Icon } from '../components/Icon.jsx';
 import { useUi, FieldError } from '../components/ui.jsx';
 import { passwordProblems } from '@domain/auth.js';
 
+function policyRules(policy, newPassword) {
+  if (!policy) return [];
+  return [
+    [`At least ${policy.minLength} characters`, newPassword.length >= policy.minLength],
+    ...(policy.requireUpper ? [['An upper-case letter', /[A-Z]/.test(newPassword)]] : []),
+    ...(policy.requireLower ? [['A lower-case letter', /[a-z]/.test(newPassword)]] : []),
+    ...(policy.requireDigit ? [['A number', /\d/.test(newPassword)]] : []),
+    ...(policy.requireSymbol ? [['A symbol', /[^A-Za-z0-9]/.test(newPassword)]] : []),
+  ];
+}
+
+function PasswordChecklist({ rules }) {
+  return (
+    <div className="checklist" style={{ marginTop: 6 }}>{rules.map(([t, ok]) => <div key={t} style={{ color: ok ? 'var(--good-fg)' : 'var(--fg-3)' }}><Icon name={ok ? 'checkc' : 'info'} size={16} />{t}</div>)}</div>
+  );
+}
+
+async function submitPasswordChange(e, { f, forced, problems, setErr, setBusy, toast, refresh, onDone }) {
+  e.preventDefault();
+  const fe = {};
+  if (!f.currentPassword) fe.currentPassword = forced ? 'Enter the temporary password you were given.' : 'Enter your current password.';
+  if (problems.length) fe.newPassword = `The password needs ${problems.join(', ')}.`;
+  if (f.newPassword !== f.confirm) fe.confirm = 'The two new passwords don’t match.';
+  setErr(fe);
+  if (Object.keys(fe).length) return;
+  setBusy(true);
+  try {
+    await api.post('/auth/change-password', { currentPassword: f.currentPassword, newPassword: f.newPassword });
+    toast('Password changed');
+    await refresh();
+    onDone?.();
+  } catch (x) { setErr(x.fields && Object.keys(x.fields).length ? x.fields : { general: x.message }); } finally { setBusy(false); }
+}
+
 export default function ChangePasswordPage({ forced = false, onDone }) {
   const { user, refresh, logout } = useAuth();
   const { toast } = useUi();
@@ -15,31 +49,8 @@ export default function ChangePasswordPage({ forced = false, onDone }) {
   const [busy, setBusy] = useState(false);
   useEffect(() => { api.get('/auth/password-policy').then(setPolicy).catch(() => {}); }, []);
   const problems = policy ? passwordProblems(f.newPassword, policy) : [];
-
-  async function save(e) {
-    e.preventDefault();
-    const fe = {};
-    if (!f.currentPassword) fe.currentPassword = forced ? 'Enter the temporary password you were given.' : 'Enter your current password.';
-    if (problems.length) fe.newPassword = `The password needs ${problems.join(', ')}.`;
-    if (f.newPassword !== f.confirm) fe.confirm = 'The two new passwords don’t match.';
-    setErr(fe);
-    if (Object.keys(fe).length) return;
-    setBusy(true);
-    try {
-      await api.post('/auth/change-password', { currentPassword: f.currentPassword, newPassword: f.newPassword });
-      toast('Password changed');
-      await refresh();
-      onDone?.();
-    } catch (x) { setErr(x.fields && Object.keys(x.fields).length ? x.fields : { general: x.message }); } finally { setBusy(false); }
-  }
-
-  const rules = policy ? [
-    [`At least ${policy.minLength} characters`, f.newPassword.length >= policy.minLength],
-    ...(policy.requireUpper ? [['An upper-case letter', /[A-Z]/.test(f.newPassword)]] : []),
-    ...(policy.requireLower ? [['A lower-case letter', /[a-z]/.test(f.newPassword)]] : []),
-    ...(policy.requireDigit ? [['A number', /\d/.test(f.newPassword)]] : []),
-    ...(policy.requireSymbol ? [['A symbol', /[^A-Za-z0-9]/.test(f.newPassword)]] : []),
-  ] : [];
+  const rules = policyRules(policy, f.newPassword);
+  const save = (e) => submitPasswordChange(e, { f, forced, problems, setErr, setBusy, toast, refresh, onDone });
 
   const body = (
     <form className="card pad stack" style={{ maxWidth: 480, margin: forced ? '0 auto' : 0, gap: 14 }} onSubmit={save} noValidate>
@@ -51,7 +62,7 @@ export default function ChangePasswordPage({ forced = false, onDone }) {
         <FieldError msg={err.currentPassword} /></div>
       <div className="f"><label htmlFor="cp-new">New password</label>
         <input id="cp-new" type="password" className={`input ${err.newPassword ? 'err' : ''}`} autoComplete="new-password" value={f.newPassword} onChange={(e) => setF({ ...f, newPassword: e.target.value })} />
-        <div className="checklist" style={{ marginTop: 6 }}>{rules.map(([t, ok]) => <div key={t} style={{ color: ok ? 'var(--good-fg)' : 'var(--fg-3)' }}><Icon name={ok ? 'checkc' : 'info'} size={16} />{t}</div>)}</div>
+        <PasswordChecklist rules={rules} />
         <FieldError msg={err.newPassword} /></div>
       <div className="f"><label htmlFor="cp-conf">Repeat new password</label>
         <input id="cp-conf" type="password" className={`input ${err.confirm ? 'err' : ''}`} autoComplete="new-password" value={f.confirm} onChange={(e) => setF({ ...f, confirm: e.target.value })} />
