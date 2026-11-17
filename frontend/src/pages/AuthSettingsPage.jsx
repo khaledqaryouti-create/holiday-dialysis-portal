@@ -88,99 +88,13 @@ export default function AuthSettingsPage() {
       </div>
 
       {/* ------------------------------------------------------------ Microsoft */}
-      <details className="sec" open={f.msEnabled} style={{ marginBottom: 16 }}>
-        <summary><Icon name="shield" />Microsoft (Entra ID){f.msEnabled ? <span className="pill t-good" style={{ marginLeft: 8 }}>On</span> : <span className="pill t-muted" style={{ marginLeft: 8 }}>Off</span>}<Icon name="chev" className="chev" /></summary>
-        <div className="body stack" style={{ gap: 16 }}>
-          <div className="banner info" style={{ margin: 0 }}><Icon name="info" /><span>In the Azure portal: <b>Entra ID → App registrations → New registration</b> (single tenant). Under <b>Authentication</b> add a <b>Web</b> redirect URI exactly as below. Under <b>Certificates & secrets</b> create a client secret and paste its <b>Value</b>. To map roles from groups, add the <b>groups</b> claim under <b>Token configuration</b> (Security groups, Group ID).</span></div>
-          <div className="form-grid">
-            <Field err={err} id="msTenantId" label="Directory (tenant) ID" req help="From the app registration Overview, or your domain such as company.onmicrosoft.com.">{input('msTenantId', { placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' })}</Field>
-            <Field err={err} id="msClientId" label="Application (client) ID" req>{input('msClientId', { placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' })}</Field>
-            <Field err={err} id="msClientSecret" label="Client secret" req={!saved.hasMsClientSecret}
-              help={<>Stored encrypted and never shown again. Secrets expire — note the expiry date in Azure.{d.hasMsClientSecret && !f.clearMsClientSecret && <> <button type="button" className="linkish" onClick={() => setF({ ...f, msClientSecret: '', clearMsClientSecret: true })}>Remove saved secret</button></>}</>}>
-              {input('msClientSecret', { type: 'password', autoComplete: 'new-password', placeholder: saved.hasMsClientSecret ? '•••••••• saved — leave blank to keep' : 'Paste the secret Value' })}</Field>
-            <Field err={err} id="msRedirectUri" label="Redirect URI" req help="Register exactly this URI in Azure (Authentication → Web).">
-              <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>{input('msRedirectUri')}<button type="button" className="btn sm" onClick={() => navigator.clipboard?.writeText(f.msRedirectUri).then(() => toast('Copied'), () => {})}>Copy</button></div></Field>
-            <Field err={err} id="msButtonLabel" label="Button text">{input('msButtonLabel')}</Field>
-          </div>
-          <TestRow busy={busy === 'ms'} onTest={() => test('ms')} label="Check Microsoft settings" result={results.ms} last={d.msLastTest} />
-        </div>
-      </details>
+      <MicrosoftSection f={f} err={err} input={input} setF={setF} saved={saved} d={d} toast={toast} busy={busy} test={test} results={results} />
 
       {/* ------------------------------------------------------------ Directory */}
-      <details className="sec" open={f.ldapEnabled} style={{ marginBottom: 16 }}>
-        <summary><Icon name="building" />Directory sign-in (Active Directory / LDAP){f.ldapEnabled ? <span className="pill t-good" style={{ marginLeft: 8 }}>On</span> : <span className="pill t-muted" style={{ marginLeft: 8 }}>Off</span>}<Icon name="chev" className="chev" /></summary>
-        <div className="body stack" style={{ gap: 16 }}>
-          <div className="form-grid">
-            <Field err={err} id="ldapHost" label="Server" req help="A domain controller or your domain’s LDAP name, for example dc01.corp.company.com.">{input('ldapHost', { placeholder: 'dc01.corp.company.com' })}</Field>
-            <Field err={err} id="ldapSecurity" label="Security" req help={f.ldapSecurity === 'none' ? 'Passwords would cross the network unencrypted. Use only for testing.' : 'LDAPS encrypts from the start (636). StartTLS upgrades a normal connection (389).'}>
-              <select id="ldapSecurity" className="select input" style={{ maxWidth: 320 }} value={f.ldapSecurity} onChange={changeSecurity}>
-                {Object.entries(LDAP_SECURITY).map(([k, v]) => <option key={k} value={k}>{v.label} — port {v.defaultPort}</option>)}</select></Field>
-            <Field err={err} id="ldapPort" label="Port" req>{input('ldapPort', { type: 'number', min: 1, max: 65535, style: { maxWidth: 140 } })}</Field>
-            <Field err={err} id="ldapBindDn" label="Service account" help="Read-only account used to look users up, e.g. CN=svc-hdportal,OU=Service Accounts,DC=corp,DC=company,DC=com or svc-hdportal@corp.company.com. Leave empty for anonymous search.">{input('ldapBindDn')}</Field>
-            <Field err={err} id="ldapBindPassword" label="Service account password" req={!!f.ldapBindDn && !saved.hasLdapBindPassword}
-              help={<>Stored encrypted.{d.hasLdapBindPassword && !f.clearLdapBindPassword && <> <button type="button" className="linkish" onClick={() => setF({ ...f, ldapBindPassword: '', clearLdapBindPassword: true })}>Remove saved password</button></>}</>}>
-              {input('ldapBindPassword', { type: 'password', autoComplete: 'new-password', placeholder: saved.hasLdapBindPassword ? '•••••••• saved — leave blank to keep' : '' })}</Field>
-            <Field err={err} id="ldapBaseDn" label="Search base (base DN)" req help="Where to look for users, e.g. OU=Staff,DC=corp,DC=company,DC=com.">{input('ldapBaseDn', { placeholder: 'DC=corp,DC=company,DC=com' })}</Field>
-            <Field err={err} id="ldapUserFilter" label="User search filter" req help="{{username}} is replaced by what the person types (safely escaped).">
-              {input('ldapUserFilter', { className: `input mono ${err.ldapUserFilter ? 'err' : ''}`, style: { fontSize: '.82rem' } })}
-              <div className="row" style={{ gap: 6, marginTop: 6 }}>{FILTER_PRESETS.map(([l, v]) => <button key={l} type="button" className="btn sm" onClick={() => setF({ ...f, ldapUserFilter: v })}>{l}</button>)}</div></Field>
-            <Field err={err} id="ldapEmailAttr" label="Attributes" help="E-mail is used to match the person to their portal account.">
-              <div className="two" style={{ gridTemplateColumns: 'repeat(3, minmax(0,1fr))' }}>
-                <label className="small">E-mail<input className={`input ${err.ldapEmailAttr ? 'err' : ''}`} value={f.ldapEmailAttr} onChange={set('ldapEmailAttr')} /></label>
-                <label className="small">Display name<input className="input" value={f.ldapNameAttr} onChange={set('ldapNameAttr')} /></label>
-                <label className="small">Groups<input className="input" value={f.ldapGroupAttr} onChange={set('ldapGroupAttr')} /></label>
-              </div></Field>
-            <Field err={err} id="ldapUsernameHint" label="Hint on sign-in page" help="Shown inside the user name box, e.g. “Network user name, e.g. jsmith”.">{input('ldapUsernameHint', { placeholder: 'Your network user name or work email' })}</Field>
-            <Field err={err} id="ldapTimeoutSeconds" label="Timeout (seconds)">{input('ldapTimeoutSeconds', { type: 'number', min: 3, max: 60, style: { maxWidth: 120 } })}</Field>
-            <span className="lbl">Certificates</span>
-            <div><label className="check-row"><input type="checkbox" checked={f.ldapAllowSelfSigned} onChange={set('ldapAllowSelfSigned')} /> Allow self-signed / internal CA certificates</label>
-              <div className="help">Better: install your company root CA on the portal server (NODE_EXTRA_CA_CERTS) and leave this off.</div></div>
-          </div>
-          <TestRow busy={busy === 'ldap'} onTest={() => test('ldap')} label="Test connection" result={results.ldap} last={d.ldapLastTest} />
-          <div className="card pad stack" style={{ gap: 10, background: 'var(--surface-2)' }}>
-            <b>Test a user sign-in</b>
-            <p className="small muted">Checks a real person’s user name and password against the directory and shows the e-mail, groups and portal roles the portal would use. Nothing is saved.</p>
-            <div className="row" style={{ gap: 8 }}>
-              <input className={`input ${err.testUsername ? 'err' : ''}`} style={{ maxWidth: 240 }} placeholder="User name" aria-label="Test user name" autoComplete="off" value={tester.testUsername} onChange={(e) => setTester({ ...tester, testUsername: e.target.value })} />
-              <input className="input" type="password" style={{ maxWidth: 220 }} placeholder="Password" aria-label="Test password" autoComplete="new-password" value={tester.testPassword} onChange={(e) => setTester({ ...tester, testPassword: e.target.value })} />
-              <button className="btn" disabled={!!busy} onClick={() => test('ldapUser', tester)}>{busy === 'ldapUser' ? <span className="spinner" /> : <Icon name="user" />}Test sign-in</button>
-            </div>
-            <FieldError msg={err.testUsername} />
-            {results.ldapUser && <Result r={results.ldapUser} />}
-            {results.ldapUser?.user && (
-              <dl className="kv" style={{ background: 'var(--surface)', padding: 12, borderRadius: 6 }}>
-                <dt>Directory entry</dt><dd className="mono small">{results.ldapUser.user.dn}</dd>
-                <dt>E-mail</dt><dd>{results.ldapUser.user.email || <span style={{ color: 'var(--bad-fg)' }}>none</span>}</dd>
-                <dt>Name</dt><dd>{results.ldapUser.user.name || '—'}</dd>
-                <dt>Groups</dt><dd className="small">{results.ldapUser.user.groups.length ? results.ldapUser.user.groups.map((g) => <div key={g} className="mono">{g}</div>) : '—'}</dd>
-                <dt>Roles from groups</dt><dd>{results.ldapUser.user.mappedRoles.length ? results.ldapUser.user.mappedRoles.map((r) => ROLE_LABELS[r]).join(', ') : 'none'}</dd>
-                <dt>Portal account</dt><dd>{results.ldapUser.user.portalUser || (f.autoCreateUsers ? 'Not yet — will be created at first sign-in if a group gives a role' : 'None — IT must add this user first')}</dd>
-              </dl>
-            )}
-            {results.ldapUser?.warning && <div className="banner warn" style={{ margin: 0 }}><Icon name="alert" /><span>{results.ldapUser.warning}</span></div>}
-          </div>
-        </div>
-      </details>
+      <DirectorySection f={f} err={err} input={input} set={set} setF={setF} saved={saved} d={d} changeSecurity={changeSecurity} busy={busy} test={test} results={results} tester={tester} setTester={setTester} />
 
       {/* ------------------------------------------------------------ Local passwords */}
-      <details className="sec" open style={{ marginBottom: 16 }}>
-        <summary><Icon name="user" />Local passwords & lockout<Icon name="chev" className="chev" /></summary>
-        <div className="body stack" style={{ gap: 14 }}>
-          <p className="small muted">Local passwords are set per user in <b>User Management → Password</b>. Keep at least one IT Admin with a local password as a break-glass account ({d.localAdmins} now). Passwords are stored as scrypt hashes.</p>
-          <div className="form-grid">
-            <Field err={err} id="passwordMinLength" label="Minimum length">{input('passwordMinLength', { type: 'number', min: 8, max: 64, style: { maxWidth: 120 } })}</Field>
-            <span className="lbl">Must contain</span>
-            <div className="row" style={{ gap: 16 }}>
-              {[['passwordRequireUpper', 'Upper-case'], ['passwordRequireLower', 'Lower-case'], ['passwordRequireDigit', 'Number'], ['passwordRequireSymbol', 'Symbol']].map(([k, l]) => <label key={k} className="check-row"><input type="checkbox" checked={f[k]} onChange={set(k)} />{l}</label>)}
-            </div>
-            <Field err={err} id="lockoutThreshold" label="Lock after" help="Wrong passwords in a row (local and directory sign-in). The spec asks for 5.">
-              <div className="row" style={{ gap: 8 }}>{input('lockoutThreshold', { type: 'number', min: 3, max: 20, style: { maxWidth: 100 } })}<span className="small">failed attempts, for</span>
-                <input id="lockoutMinutes" type="number" min="1" max="1440" className={`input ${err.lockoutMinutes ? 'err' : ''}`} style={{ maxWidth: 100 }} value={f.lockoutMinutes} onChange={set('lockoutMinutes')} /><span className="small">minutes</span></div>
-              <FieldError msg={err.lockoutMinutes} /></Field>
-          </div>
-          <Lockouts />
-        </div>
-      </details>
+      <LocalPasswordSection f={f} err={err} input={input} set={set} d={d} />
 
       {/* ------------------------------------------------------------ Provisioning */}
       <details className="sec" open style={{ marginBottom: 16 }}>
@@ -199,6 +113,110 @@ export default function AuthSettingsPage() {
         <button className="btn primary" onClick={save} disabled={!!busy}>{busy === 'save' ? <span className="spinner" /> : <Icon name="save" />}Save sign-in settings</button>
       </div>
     </>
+  );
+}
+
+function MicrosoftSection({ f, err, input, setF, saved, d, toast, busy, test, results }) {
+  return (
+    <details className="sec" open={f.msEnabled} style={{ marginBottom: 16 }}>
+      <summary><Icon name="shield" />Microsoft (Entra ID){f.msEnabled ? <span className="pill t-good" style={{ marginLeft: 8 }}>On</span> : <span className="pill t-muted" style={{ marginLeft: 8 }}>Off</span>}<Icon name="chev" className="chev" /></summary>
+      <div className="body stack" style={{ gap: 16 }}>
+        <div className="banner info" style={{ margin: 0 }}><Icon name="info" /><span>In the Azure portal: <b>Entra ID → App registrations → New registration</b> (single tenant). Under <b>Authentication</b> add a <b>Web</b> redirect URI exactly as below. Under <b>Certificates & secrets</b> create a client secret and paste its <b>Value</b>. To map roles from groups, add the <b>groups</b> claim under <b>Token configuration</b> (Security groups, Group ID).</span></div>
+        <div className="form-grid">
+          <Field err={err} id="msTenantId" label="Directory (tenant) ID" req help="From the app registration Overview, or your domain such as company.onmicrosoft.com.">{input('msTenantId', { placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' })}</Field>
+          <Field err={err} id="msClientId" label="Application (client) ID" req>{input('msClientId', { placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' })}</Field>
+          <Field err={err} id="msClientSecret" label="Client secret" req={!saved.hasMsClientSecret}
+            help={<>Stored encrypted and never shown again. Secrets expire — note the expiry date in Azure.{d.hasMsClientSecret && !f.clearMsClientSecret && <> <button type="button" className="linkish" onClick={() => setF({ ...f, msClientSecret: '', clearMsClientSecret: true })}>Remove saved secret</button></>}</>}>
+            {input('msClientSecret', { type: 'password', autoComplete: 'new-password', placeholder: saved.hasMsClientSecret ? '•••••••• saved — leave blank to keep' : 'Paste the secret Value' })}</Field>
+          <Field err={err} id="msRedirectUri" label="Redirect URI" req help="Register exactly this URI in Azure (Authentication → Web).">
+            <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>{input('msRedirectUri')}<button type="button" className="btn sm" onClick={() => navigator.clipboard?.writeText(f.msRedirectUri).then(() => toast('Copied'), () => {})}>Copy</button></div></Field>
+          <Field err={err} id="msButtonLabel" label="Button text">{input('msButtonLabel')}</Field>
+        </div>
+        <TestRow busy={busy === 'ms'} onTest={() => test('ms')} label="Check Microsoft settings" result={results.ms} last={d.msLastTest} />
+      </div>
+    </details>
+  );
+}
+
+function DirectorySection({ f, err, input, set, setF, saved, d, changeSecurity, busy, test, results, tester, setTester }) {
+  return (
+    <details className="sec" open={f.ldapEnabled} style={{ marginBottom: 16 }}>
+      <summary><Icon name="building" />Directory sign-in (Active Directory / LDAP){f.ldapEnabled ? <span className="pill t-good" style={{ marginLeft: 8 }}>On</span> : <span className="pill t-muted" style={{ marginLeft: 8 }}>Off</span>}<Icon name="chev" className="chev" /></summary>
+      <div className="body stack" style={{ gap: 16 }}>
+        <div className="form-grid">
+          <Field err={err} id="ldapHost" label="Server" req help="A domain controller or your domain’s LDAP name, for example dc01.corp.company.com.">{input('ldapHost', { placeholder: 'dc01.corp.company.com' })}</Field>
+          <Field err={err} id="ldapSecurity" label="Security" req help={f.ldapSecurity === 'none' ? 'Passwords would cross the network unencrypted. Use only for testing.' : 'LDAPS encrypts from the start (636). StartTLS upgrades a normal connection (389).'}>
+            <select id="ldapSecurity" className="select input" style={{ maxWidth: 320 }} value={f.ldapSecurity} onChange={changeSecurity}>
+              {Object.entries(LDAP_SECURITY).map(([k, v]) => <option key={k} value={k}>{v.label} — port {v.defaultPort}</option>)}</select></Field>
+          <Field err={err} id="ldapPort" label="Port" req>{input('ldapPort', { type: 'number', min: 1, max: 65535, style: { maxWidth: 140 } })}</Field>
+          <Field err={err} id="ldapBindDn" label="Service account" help="Read-only account used to look users up, e.g. CN=svc-hdportal,OU=Service Accounts,DC=corp,DC=company,DC=com or svc-hdportal@corp.company.com. Leave empty for anonymous search.">{input('ldapBindDn')}</Field>
+          <Field err={err} id="ldapBindPassword" label="Service account password" req={!!f.ldapBindDn && !saved.hasLdapBindPassword}
+            help={<>Stored encrypted.{d.hasLdapBindPassword && !f.clearLdapBindPassword && <> <button type="button" className="linkish" onClick={() => setF({ ...f, ldapBindPassword: '', clearLdapBindPassword: true })}>Remove saved password</button></>}</>}>
+            {input('ldapBindPassword', { type: 'password', autoComplete: 'new-password', placeholder: saved.hasLdapBindPassword ? '•••••••• saved — leave blank to keep' : '' })}</Field>
+          <Field err={err} id="ldapBaseDn" label="Search base (base DN)" req help="Where to look for users, e.g. OU=Staff,DC=corp,DC=company,DC=com.">{input('ldapBaseDn', { placeholder: 'DC=corp,DC=company,DC=com' })}</Field>
+          <Field err={err} id="ldapUserFilter" label="User search filter" req help="{{username}} is replaced by what the person types (safely escaped).">
+            {input('ldapUserFilter', { className: `input mono ${err.ldapUserFilter ? 'err' : ''}`, style: { fontSize: '.82rem' } })}
+            <div className="row" style={{ gap: 6, marginTop: 6 }}>{FILTER_PRESETS.map(([l, v]) => <button key={l} type="button" className="btn sm" onClick={() => setF({ ...f, ldapUserFilter: v })}>{l}</button>)}</div></Field>
+          <Field err={err} id="ldapEmailAttr" label="Attributes" help="E-mail is used to match the person to their portal account.">
+            <div className="two" style={{ gridTemplateColumns: 'repeat(3, minmax(0,1fr))' }}>
+              <label className="small">E-mail<input className={`input ${err.ldapEmailAttr ? 'err' : ''}`} value={f.ldapEmailAttr} onChange={set('ldapEmailAttr')} /></label>
+              <label className="small">Display name<input className="input" value={f.ldapNameAttr} onChange={set('ldapNameAttr')} /></label>
+              <label className="small">Groups<input className="input" value={f.ldapGroupAttr} onChange={set('ldapGroupAttr')} /></label>
+            </div></Field>
+          <Field err={err} id="ldapUsernameHint" label="Hint on sign-in page" help="Shown inside the user name box, e.g. “Network user name, e.g. jsmith”.">{input('ldapUsernameHint', { placeholder: 'Your network user name or work email' })}</Field>
+          <Field err={err} id="ldapTimeoutSeconds" label="Timeout (seconds)">{input('ldapTimeoutSeconds', { type: 'number', min: 3, max: 60, style: { maxWidth: 120 } })}</Field>
+          <span className="lbl">Certificates</span>
+          <div><label className="check-row"><input type="checkbox" checked={f.ldapAllowSelfSigned} onChange={set('ldapAllowSelfSigned')} /> Allow self-signed / internal CA certificates</label>
+            <div className="help">Better: install your company root CA on the portal server (NODE_EXTRA_CA_CERTS) and leave this off.</div></div>
+        </div>
+        <TestRow busy={busy === 'ldap'} onTest={() => test('ldap')} label="Test connection" result={results.ldap} last={d.ldapLastTest} />
+        <div className="card pad stack" style={{ gap: 10, background: 'var(--surface-2)' }}>
+          <b>Test a user sign-in</b>
+          <p className="small muted">Checks a real person’s user name and password against the directory and shows the e-mail, groups and portal roles the portal would use. Nothing is saved.</p>
+          <div className="row" style={{ gap: 8 }}>
+            <input className={`input ${err.testUsername ? 'err' : ''}`} style={{ maxWidth: 240 }} placeholder="User name" aria-label="Test user name" autoComplete="off" value={tester.testUsername} onChange={(e) => setTester({ ...tester, testUsername: e.target.value })} />
+            <input className="input" type="password" style={{ maxWidth: 220 }} placeholder="Password" aria-label="Test password" autoComplete="new-password" value={tester.testPassword} onChange={(e) => setTester({ ...tester, testPassword: e.target.value })} />
+            <button className="btn" disabled={!!busy} onClick={() => test('ldapUser', tester)}>{busy === 'ldapUser' ? <span className="spinner" /> : <Icon name="user" />}Test sign-in</button>
+          </div>
+          <FieldError msg={err.testUsername} />
+          {results.ldapUser && <Result r={results.ldapUser} />}
+          {results.ldapUser?.user && (
+            <dl className="kv" style={{ background: 'var(--surface)', padding: 12, borderRadius: 6 }}>
+              <dt>Directory entry</dt><dd className="mono small">{results.ldapUser.user.dn}</dd>
+              <dt>E-mail</dt><dd>{results.ldapUser.user.email || <span style={{ color: 'var(--bad-fg)' }}>none</span>}</dd>
+              <dt>Name</dt><dd>{results.ldapUser.user.name || '—'}</dd>
+              <dt>Groups</dt><dd className="small">{results.ldapUser.user.groups.length ? results.ldapUser.user.groups.map((g) => <div key={g} className="mono">{g}</div>) : '—'}</dd>
+              <dt>Roles from groups</dt><dd>{results.ldapUser.user.mappedRoles.length ? results.ldapUser.user.mappedRoles.map((r) => ROLE_LABELS[r]).join(', ') : 'none'}</dd>
+              <dt>Portal account</dt><dd>{results.ldapUser.user.portalUser || (f.autoCreateUsers ? 'Not yet — will be created at first sign-in if a group gives a role' : 'None — IT must add this user first')}</dd>
+            </dl>
+          )}
+          {results.ldapUser?.warning && <div className="banner warn" style={{ margin: 0 }}><Icon name="alert" /><span>{results.ldapUser.warning}</span></div>}
+        </div>
+      </div>
+    </details>
+  );
+}
+
+function LocalPasswordSection({ f, err, input, set, d }) {
+  return (
+    <details className="sec" open style={{ marginBottom: 16 }}>
+      <summary><Icon name="user" />Local passwords & lockout<Icon name="chev" className="chev" /></summary>
+      <div className="body stack" style={{ gap: 14 }}>
+        <p className="small muted">Local passwords are set per user in <b>User Management → Password</b>. Keep at least one IT Admin with a local password as a break-glass account ({d.localAdmins} now). Passwords are stored as scrypt hashes.</p>
+        <div className="form-grid">
+          <Field err={err} id="passwordMinLength" label="Minimum length">{input('passwordMinLength', { type: 'number', min: 8, max: 64, style: { maxWidth: 120 } })}</Field>
+          <span className="lbl">Must contain</span>
+          <div className="row" style={{ gap: 16 }}>
+            {[['passwordRequireUpper', 'Upper-case'], ['passwordRequireLower', 'Lower-case'], ['passwordRequireDigit', 'Number'], ['passwordRequireSymbol', 'Symbol']].map(([k, l]) => <label key={k} className="check-row"><input type="checkbox" checked={f[k]} onChange={set(k)} />{l}</label>)}
+          </div>
+          <Field err={err} id="lockoutThreshold" label="Lock after" help="Wrong passwords in a row (local and directory sign-in). The spec asks for 5.">
+            <div className="row" style={{ gap: 8 }}>{input('lockoutThreshold', { type: 'number', min: 3, max: 20, style: { maxWidth: 100 } })}<span className="small">failed attempts, for</span>
+              <input id="lockoutMinutes" type="number" min="1" max="1440" className={`input ${err.lockoutMinutes ? 'err' : ''}`} style={{ maxWidth: 100 }} value={f.lockoutMinutes} onChange={set('lockoutMinutes')} /><span className="small">minutes</span></div>
+            <FieldError msg={err.lockoutMinutes} /></Field>
+        </div>
+        <Lockouts />
+      </div>
+    </details>
   );
 }
 
