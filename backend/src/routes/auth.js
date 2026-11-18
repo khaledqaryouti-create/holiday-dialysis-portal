@@ -115,12 +115,26 @@ authRouter.post('/change-password', ah(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------- Microsoft (Entra ID)
-/** A sign-in may leave the portal only for Microsoft's login host. */
+function allowedMicrosoftPathChar(code) {
+  const digit = code >= 48 && code <= 57;
+  const upper = code >= 65 && code <= 90;
+  const lower = code >= 97 && code <= 122;
+  const mark = code === 47 || code === 45 || code === 46 || code === 95 || code === 126
+    || code === 63 || code === 38 || code === 61 || code === 37 || code === 43;
+  return digit || upper || lower || mark;
+}
+
+/** A sign-in may leave the portal only for Microsoft's login host. Returns the path and query, or null. */
 function microsoftRedirect(url) {
+  const source = String(url ?? '');
+  if (source.includes('\\') || source.includes('@')) return null;
   let u;
-  try { u = new URL(String(url)); } catch { return null; }
+  try { u = new URL(source); } catch { return null; }
   if (u.protocol !== 'https:' || u.hostname !== 'login.microsoftonline.com' || u.username || u.password) return null;
-  return `https://login.microsoftonline.com${u.pathname}${u.search}`;
+  const path = `${u.pathname}${u.search}`;
+  if (!path.startsWith('/') || path.startsWith('//')) return null;
+  for (let i = 0; i < path.length; i++) if (!allowedMicrosoftPathChar(path.charCodeAt(i))) return null;
+  return path;
 }
 
 /** Failure stays on this site: / plus an optional loginError query. */
@@ -131,7 +145,8 @@ function loginErrorPath(message) {
 }
 
 authRouter.get('/microsoft/login', ah(async (_req, res) => {
-  res.redirect(microsoftRedirect(await signin.microsoftStart(res)) || '/');
+  const path = microsoftRedirect(await signin.microsoftStart(res));
+  res.redirect(path ? `https://login.microsoftonline.com${path}` : '/');
 }));
 
 authRouter.get('/microsoft/callback', async (req, res) => {
