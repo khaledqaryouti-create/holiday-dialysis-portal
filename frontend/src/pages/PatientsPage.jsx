@@ -1,7 +1,7 @@
 // My Requests → Patients: register patients so New Request finds them by MRN or name straight away.
 // Clinic staff see their own clinic's patients; IT admins see every clinic. ID numbers are only ever shown masked.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, qs } from '../api.js';
 import { useAuth, roleHelpers } from '../auth.jsx';
 import { Icon } from '../components/Icon.jsx';
@@ -69,7 +69,7 @@ export default function PatientsPage() {
         <div className="filters">
           <div className="f search"><label htmlFor="pt-q">Search</label>
             <span style={{ position: 'relative', display: 'block' }}><Icon name="search" size={16} />
-              <input id="pt-q" className="input" autoFocus placeholder="Patient name or MRN" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" />
+              <input id="pt-q" className="input" placeholder="Patient name or MRN" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" />
             </span>
           </div>
           {clinics.length > 1 && (
@@ -152,7 +152,7 @@ function PatientForm({ p: init, clinics, vr, onClose, onSaved }) {
     try {
       const saved = editing ? await api.patch(`/patients/${init.id}`, f) : await api.post('/patients', f);
       onSaved(saved, !editing);
-    } catch (x) { setErr(x.fields && Object.keys(x.fields).length ? x.fields : { general: x.message }); } finally { setBusy(false); }
+    } catch (error_) { setErr(error_.fields && Object.keys(error_.fields).length ? error_.fields : { general: error_.message }); } finally { setBusy(false); }
   }
 
   return (

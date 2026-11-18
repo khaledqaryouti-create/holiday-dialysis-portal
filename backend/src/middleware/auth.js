@@ -16,25 +16,50 @@ export function issueSession(res, userId, method = 'dev', clinicId = null, expir
     maxAge: (exp - now) * 1000,
     path: '/',
   });
+  return token; // the mobile app receives this and sends it as "Authorization: Bearer <token>"
+}
+
+/** Session token from the cookie (web) or the Authorization: Bearer header (mobile app). */
+function sessionToken(req) {
+  const cookie = req.cookies?.[config.auth.cookieName];
+  if (cookie) return cookie;
+  const auth = req.get('authorization') || '';
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  return m ? m[1].trim() : null;
 }
 
 export function clearSession(res) {
   res.clearCookie(config.auth.cookieName, { path: '/' });
 }
 
+/** A password reset signs out every portal-password session that started before it. */
+function sessionRevoked(user, payload) {
+  const resetAt = user?.passwordResetAt ? Math.floor(new Date(user.passwordResetAt).getTime() / 1000) : 0;
+  return !!(user && payload.amr === 'local' && payload.iat && resetAt && payload.iat < resetAt);
+}
+
+/** Signed in at one clinic: the person works for that clinic only this session. Returns false when no longer assigned. */
+function applySignedInClinic(user, clinicId) {
+  if (!clinicId) return true;
+  if (!user.clinicIds.includes(clinicId)) return false;
+  user.clinicIds = [clinicId];
+  user.clinics = user.clinics.filter((c) => c.id === clinicId);
+  user.activeClinicId = clinicId;
+  return true;
+}
+
 /** Loads req.user fresh from the database on every request, so role changes and deactivation apply immediately (§13.2). */
 export async function attachUser(req, _res, next) {
   try {
-    const token = req.cookies?.[config.auth.cookieName];
+    const token = sessionToken(req);
     if (!token) return next();
     let payload;
     try { payload = jwt.verify(token, config.auth.sessionSecret); } catch { return next(); }
     const user = await loadUser(payload.sub);
-    // A password reset signs out every portal-password session that started before it.
-    const resetAt = user?.passwordResetAt ? Math.floor(new Date(user.passwordResetAt).getTime() / 1000) : 0;
+    const revoked = sessionRevoked(user, payload);
     if (user) delete user.passwordResetAt;
-    if (user && payload.amr === 'local' && payload.iat && resetAt && payload.iat < resetAt) return next();
-    if (user && user.status === 'Active') {
+    if (revoked) return next();
+    if (user?.status === 'Active') {
       // A temporary local password only matters when the person signed in WITH it. IT can stage passwords before
       // local sign-in is activated without affecting anyone who signs in another way.
       if (payload.amr !== 'local') user.mustChangePassword = false;
@@ -42,13 +67,7 @@ export async function attachUser(req, _res, next) {
       req.sessionExp = payload.exp;
       // Every clinic the person is assigned to (for the header's clinic switcher), before narrowing to one.
       user.accessibleClinics = user.clinics;
-      // Signed in at one clinic: the person works for that clinic only this session (lists, approvals, new requests).
-      if (payload.clinic) {
-        if (!user.clinicIds.includes(payload.clinic)) return next(); // no longer assigned → signed out
-        user.clinicIds = [payload.clinic];
-        user.clinics = user.clinics.filter((c) => c.id === payload.clinic);
-        user.activeClinicId = payload.clinic;
-      }
+      if (!applySignedInClinic(user, payload.clinic)) return next();
       req.user = user;
     }
     next();

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { api } from './api.js';
 import { ROLES } from '@domain/constants.js';
 
@@ -23,14 +23,14 @@ export function AuthProvider({ children }) {
     return () => window.removeEventListener('hdp:unauthorized', onUnauth);
   }, []);
 
-  const value = {
+  const value = useMemo(() => ({
     ...state,
     refresh,
     async devLogin(userId) { await api.post('/auth/dev-login', { userId }); await refresh(); },
     async passwordLogin(username, password, clinicId = '') { await api.post('/auth/login', { username, password, clinicId }); await refresh(); },
     async logout() { await api.post('/auth/logout'); await refresh(); }, // refresh: sign-in options may have changed
     setUnread: (n) => setState((s) => ({ ...s, unread: n })),
-  };
+  }), [state.loading, state.user, state.unread, state.mode, state.options, refresh]);
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 }
 

@@ -3,13 +3,20 @@ import { fmtTS } from '../lib/format.js';
 
 function decisionMilestone(r, find, internal, proposed) {
   const dec = find(['Confirmed', 'Rejected']);
-  return {
-    label: dec ? (dec.to === 'Confirmed' ? (dec.action === 'acceptProposedDates' ? 'Other dates agreed' : internal ? 'Clinic approved' : 'Provider approved') : (internal ? 'Clinic rejected' : 'Provider declined'))
-      : r.status === 'AlternativeDatesProposed' ? 'Other dates proposed' : (internal ? 'Clinic response' : 'Provider response'),
-    ev: dec, bad: dec?.to === 'Rejected',
-    wait: r.status === 'AlternativeDatesProposed' ? 'Requesting clinic' : internal ? 'Receiving clinic' : 'Provider',
-    sub: r.status === 'AlternativeDatesProposed' ? 'Waiting: requesting clinic to choose' : proposed && !dec ? `Waiting: ${internal ? 'receiving clinic' : 'provider'} (other dates asked)` : undefined,
-  };
+  const approved = internal ? 'Clinic approved' : 'Provider approved';
+  const agreed = dec?.action === 'acceptProposedDates' ? 'Other dates agreed' : approved;
+  const declined = internal ? 'Clinic rejected' : 'Provider declined';
+  const decidedLabel = dec?.to === 'Confirmed' ? agreed : declined;
+  const response = internal ? 'Clinic response' : 'Provider response';
+  const openLabel = r.status === 'AlternativeDatesProposed' ? 'Other dates proposed' : response;
+  const label = dec ? decidedLabel : openLabel;
+  const otherWait = internal ? 'Receiving clinic' : 'Provider';
+  const wait = r.status === 'AlternativeDatesProposed' ? 'Requesting clinic' : otherWait;
+  const askedOf = internal ? 'receiving clinic' : 'provider';
+  const asked = `Waiting: ${askedOf} (other dates asked)`;
+  const pending = proposed && !dec ? asked : undefined;
+  const sub = r.status === 'AlternativeDatesProposed' ? 'Waiting: requesting clinic to choose' : pending;
+  return { label, ev: dec, bad: dec?.to === 'Rejected', wait, sub };
 }
 
 /** Milestones derived from the append-only status history (spec §7 "Status timeline"). */
@@ -39,13 +46,23 @@ export function milestones(r) {
 export function Timeline({ request }) {
   return (
     <ul className="tl">
-      {milestones(request).map((m) => (
-        <li key={m.label} className={`tl-s ${m.bad ? 'bad' : m.ev ? 'done' : m.cur ? 'cur' : ''}`}>
-          <span className="n">{m.bad ? <Icon name="x" size={12} /> : m.ev ? <Icon name="check" size={12} /> : null}</span>
-          <b>{m.label}</b>
-          <small>{m.ev ? <>{fmtTS(m.ev.at).split(',')[0]}<br />{m.ev.byName}</> : m.cur ? (m.sub || `Waiting: ${m.wait || ''}`) : ''}</small>
-        </li>
-      ))}
+      {milestones(request).map((m) => {
+        const idle = m.cur ? 'cur' : '';
+        const tone = m.ev ? 'done' : idle;
+        const stepClass = m.bad ? 'bad' : tone;
+        const mark = m.ev ? <Icon name="check" size={12} /> : null;
+        const icon = m.bad ? <Icon name="x" size={12} /> : mark;
+        const waiting = m.sub || `Waiting: ${m.wait || ''}`;
+        const when = m.cur ? waiting : '';
+        const detail = m.ev ? <>{fmtTS(m.ev.at).split(',')[0]}<br />{m.ev.byName}</> : when;
+        return (
+          <li key={m.label} className={`tl-s ${stepClass}`}>
+            <span className="n">{icon}</span>
+            <b>{m.label}</b>
+            <small>{detail}</small>
+          </li>
+        );
+      })}
     </ul>
   );
 }

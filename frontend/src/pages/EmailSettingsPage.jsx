@@ -59,7 +59,7 @@ export default function EmailSettingsPage() {
       const saved = await api.put('/admin/email-settings', payload());
       data.setData(saved);
       toast(saved.enabled ? 'Email settings saved and in use' : 'Email settings saved');
-    } catch (e) { setErr(e.fields || {}); toast(e.message, 'bad'); } finally { setBusy(''); }
+    } catch (error_) { setErr(error_.fields || {}); toast(error_.message, 'bad'); } finally { setBusy(''); }
   }
   async function run(kind) {
     if (!check(true)) { toast('Complete the highlighted fields first.', 'bad'); return; }
@@ -70,7 +70,7 @@ export default function EmailSettingsPage() {
         : await api.post('/admin/email-settings/test-email', { ...payload(), to: testTo });
       setResult(r);
       if (kind === 'email') setLogKey((k) => k + 1);
-    } catch (e) { setErr(e.fields || {}); setResult({ ok: false, message: e.message }); } finally { setBusy(''); }
+    } catch (error_) { setErr(error_.fields || {}); setResult({ ok: false, message: error_.message }); } finally { setBusy(''); }
   }
   const applyPreset = (p) => { setF({ ...f, host: p.host || f.host, port: p.port, security: p.security, authRequired: p.authRequired ?? true }); setErr({}); };
   const changeSecurity = (e) => {
@@ -243,7 +243,7 @@ function EmailLog() {
               <td><span className={`pill ${tone[r.status] || 't-muted'}`}>{r.status}</span>{r.attempts > 1 && <span className="sub">{r.attempts} attempts</span>}</td>
               <td>{r.kind === 'notification' && r.type !== 'TestEmail' && ['Failed', 'Pending'].includes(r.status) && (
                 <button className="textlink" onClick={async () => {
-                  try { await api.post(`/admin/email-log/${r.id}/retry`); toast('Email sent'); } catch (e) { toast(e.message, 'bad'); }
+                  try { await api.post(`/admin/email-log/${r.id}/retry`); toast('Email sent'); } catch (error_) { toast(error_.message, 'bad'); }
                   log.reload();
                 }}>Retry</button>
               )}</td>

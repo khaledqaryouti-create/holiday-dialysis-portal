@@ -450,7 +450,8 @@ details.sec .body{padding:4px 18px 18px}
 
 /* Modal + toast */
 .scrim{position:fixed;inset:0;background:rgba(8,20,13,.5);z-index:60;display:grid;place-items:center;padding:16px}
-.modal{background:var(--surface);border-radius:12px;width:min(640px,100%);max-height:calc(100vh - 32px);overflow:auto;box-shadow:0 20px 50px rgba(0,0,0,.3);display:flex;flex-direction:column}
+.scrim-dismiss{position:absolute;inset:0;z-index:0;border:0;padding:0;background:transparent;cursor:default}
+.modal{position:relative;z-index:1;background:var(--surface);border-radius:12px;width:min(640px,100%);max-height:calc(100vh - 32px);overflow:auto;box-shadow:0 20px 50px rgba(0,0,0,.3);display:flex;flex-direction:column}
 .modal.wide{width:min(820px,100%)}
 .modal-h{display:flex;justify-content:space-between;align-items:center;padding:18px 22px;border-bottom:1px solid var(--line);gap:12px}
 .modal-b{padding:20px 22px;display:flex;flex-direction:column;gap:14px}
@@ -728,7 +729,7 @@ a.textlink{text-decoration:none}
 .ig-sec{gap:14px;margin-bottom:16px}
 .ig-sec h3{font-size:1rem;margin:0}
 .ig-sec .f{display:flex;flex-direction:column;gap:5px}
-.ig-sec .f > label,.lbl-s{font-size:.82rem;font-weight:600}
+.ig-sec .f > label,.ig-sec .f > .lbl,.lbl-s{font-size:.82rem;font-weight:600}
 .ig-protocols{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
 .ig-proto{display:flex;flex-direction:column;gap:4px;border:1px solid var(--line-2);border-radius:var(--r);padding:12px;cursor:pointer;background:var(--surface)}
 .ig-proto input{position:absolute;opacity:0;pointer-events:none}

@@ -14,7 +14,11 @@ async function loadRow() {
     return rows[0] || null;
   } catch { return null; }
 }
-const termsOf = (r) => cleanTerms(r?.terms ? (typeof r.terms === 'string' ? JSON.parse(r.terms) : r.terms) : {});
+const termsOf = (r) => {
+  const stored = r?.terms;
+  const parsed = stored && typeof stored === 'string' ? JSON.parse(stored) : stored;
+  return cleanTerms(stored ? parsed : {});
+};
 
 /** What every screen uses (no sign-in needed: the sign-in page and menu use some terms). Empty when switched off. */
 export async function publicTerminology() {

@@ -82,7 +82,7 @@ function Users() {
               {u.id !== me.id && <button className={`textlink ${u.status === 'Active' ? 'danger' : ''}`} onClick={async () => {
                 const act = u.status !== 'Active';
                 if (!(await confirm({ title: `${act ? 'Activate' : 'Deactivate'} ${u.name}?`, body: act ? 'They will be able to sign in again.' : 'They will no longer be able to sign in. Their past actions stay in the audit history.', ok: act ? 'Activate' : 'Deactivate', tone: act ? 'primary' : 'danger' }))) return;
-                try { await api.post(`/admin/users/${u.id}/${act ? 'activate' : 'deactivate'}`); toast(act ? 'User activated' : 'User deactivated'); users.reload(); } catch (e) { toast(e.message, 'bad'); }
+                try { await api.post(`/admin/users/${u.id}/${act ? 'activate' : 'deactivate'}`); toast(act ? 'User activated' : 'User deactivated'); users.reload(); } catch (error_) { toast(error_.message, 'bad'); }
               }}>{u.status === 'Active' ? 'Deactivate' : 'Activate'}</button>}
             </div></td></tr>
         ))}</tbody>
@@ -106,7 +106,7 @@ function UserForm({ user, clinics, onClose, onSaved }) {
       if (user.id) await api.patch(`/admin/users/${user.id}`, profile);
       else await api.post('/admin/users', { ...profile, password });
       onSaved(user.id ? 'User updated' : `${f.name} added. Activation email sent.`);
-    } catch (e) { setErr(e.fields && Object.keys(e.fields).length ? e.fields : { general: e.message }); } finally { setBusy(false); }
+    } catch (error_) { setErr(error_.fields && Object.keys(error_.fields).length ? error_.fields : { general: error_.message }); } finally { setBusy(false); }
   };
   return (
     <Modal title={user.id ? 'Edit user' : 'Add user'} onClose={onClose}
@@ -171,7 +171,7 @@ function FacilityForm({ f: init, providers, countries, onClose, onSaved }) {
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
   const save = async () => {
     try { if (init.id) await api.patch(`/admin/facilities/${init.id}`, f); else await api.post('/admin/facilities', f); onSaved(init.id ? 'Facility updated' : 'Facility added'); }
-    catch (e) { setErr(e.fields && Object.keys(e.fields).length ? e.fields : { general: e.message }); }
+    catch (error_) { setErr(error_.fields && Object.keys(error_.fields).length ? error_.fields : { general: error_.message }); }
   };
   return (
     <Modal title={init.id ? 'Edit facility' : 'Add facility'} onClose={onClose}
@@ -233,7 +233,7 @@ function Sla() {
               try {
                 const saved = await api.put('/admin/sla', { items: rows.map((r) => ({ code: r.code, targetDays: Number(r.targetDays), reminderDays: Number(r.reminderDays) })) });
                 sla.setData(saved); setErr({}); toast('SLA targets saved');
-              } catch (e) { setErr(e.fields || {}); toast(e.message, 'bad'); }
+              } catch (error_) { setErr(error_.fields || {}); toast(error_.message, 'bad'); }
             }}>Save SLA targets</button></div>
         </div></div>
     </>
@@ -279,7 +279,7 @@ function Templates() {
           <div className="row" style={{ justifyContent: 'flex-end' }}>
             <button className="btn" onClick={() => setPreview(true)}><Icon name="eye" />Preview</button>
             <button className="btn primary" onClick={async () => {
-              try { const r = await api.put(`/admin/templates/${code}`, draft); toast(r.unchanged ? 'No changes to save' : `Saved as version ${r.version}`); data.reload(); } catch (e) { toast(e.message, 'bad'); }
+              try { const r = await api.put(`/admin/templates/${code}`, draft); toast(r.unchanged ? 'No changes to save' : `Saved as version ${r.version}`); data.reload(); } catch (error_) { toast(error_.message, 'bad'); }
             }}>Save template</button>
           </div>
         </div>
@@ -343,11 +343,11 @@ function PasswordModal({ user, onClose }) {
     try {
       const r = await api.post(`/admin/users/${user.id}/password`, mode === 'generate' ? { generate: true } : { password, mustChange });
       if (r.temporaryPassword) setTemp(r.temporaryPassword); else { toast('Password set'); onClose(); }
-    } catch (e) { setErr(e.fields && Object.keys(e.fields).length ? e.fields : { general: e.message }); } finally { setBusy(false); }
+    } catch (error_) { setErr(error_.fields && Object.keys(error_.fields).length ? error_.fields : { general: error_.message }); } finally { setBusy(false); }
   };
   const remove = async () => {
     if (!(await confirm({ title: `Remove ${user.name}’s local password?`, body: 'They will only be able to sign in with the company directory or Microsoft.', ok: 'Remove', tone: 'danger' }))) return;
-    try { await api.del(`/admin/users/${user.id}/password`); toast('Local password removed'); onClose(); } catch (e) { toast(e.message, 'bad'); }
+    try { await api.del(`/admin/users/${user.id}/password`); toast('Local password removed'); onClose(); } catch (error_) { toast(error_.message, 'bad'); }
   };
   if (temp) {
     return (

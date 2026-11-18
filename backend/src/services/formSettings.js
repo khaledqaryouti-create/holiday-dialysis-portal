@@ -4,12 +4,15 @@ import { FIELD_DEFS, DEFAULT_FORM_COLORS, resolveFieldRules, validateFormSetting
 import { validationFailed } from '../lib/errors.js';
 import { audit } from './audit.js';
 
-async function loadRow(db = { query }) {
+const defaultDb = { query };
+
+async function loadRow(db) {
+  const handle = db || defaultDb;
   try {
     // Checked first so a missing table (before migration 011) never aborts the caller's transaction.
-    const { rows: t } = await db.query(`SELECT to_regclass('public.form_settings') IS NOT NULL AS ok`);
+    const { rows: t } = await handle.query(`SELECT to_regclass('public.form_settings') IS NOT NULL AS ok`);
     if (!t[0]?.ok) return null;
-    const { rows } = await db.query(
+    const { rows } = await handle.query(
       `SELECT rules, required_color, optional_color, highlight_required, updated_at,
               (SELECT display_name FROM portal_user WHERE id = updated_by_user_id) AS updated_by
          FROM form_settings WHERE id = 1`);
@@ -18,7 +21,9 @@ async function loadRow(db = { query }) {
 }
 
 function mapRow(r) {
-  const raw = r?.rules ? (typeof r.rules === 'string' ? JSON.parse(r.rules) : r.rules) : {};
+  const stored = r?.rules;
+  const parsed = stored && typeof stored === 'string' ? JSON.parse(stored) : stored;
+  const raw = stored ? parsed : {};
   return {
     rules: resolveFieldRules(raw),
     requiredColor: r?.required_color || DEFAULT_FORM_COLORS.requiredColor,

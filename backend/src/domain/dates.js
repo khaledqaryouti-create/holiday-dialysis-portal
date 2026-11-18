@@ -37,7 +37,8 @@ export function fmtRange(a, b) {
   if (!a || !b) return '—';
   const [y1, m1, d1] = a.split('-').map(Number);
   const [y2, m2, d2] = b.split('-').map(Number);
-  return `${d1} ${MON[m1 - 1]}${y1 === y2 ? '' : ` ${y1}`} – ${d2} ${MON[m2 - 1]} ${y2}`;
+  const startYear = y1 === y2 ? '' : ` ${y1}`;
+  return `${d1} ${MON[m1 - 1]}${startYear} – ${d2} ${MON[m2 - 1]} ${y2}`;
 }
 
 export function fmtDateTime(ts, timeZone) {

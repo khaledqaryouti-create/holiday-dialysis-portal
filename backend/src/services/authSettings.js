@@ -114,8 +114,10 @@ export async function saveAuthSettings(admin, body, ip) {
       n.msEnabled, n.msTenantId, n.msClientId, n.msRedirectUri, n.msButtonLabel, n.autoCreateUsers, n.syncRolesFromGroups, admin.id,
     ];
     const enc = (val) => { v.push(val); const a = v.length; v.push(config.fieldKey); return `pgp_sym_encrypt($${a}, $${a + 1})`; };
-    const bindPw = n.ldapBindPassword ? enc(n.ldapBindPassword) : n.clearLdapBindPassword ? 'NULL' : 'ldap_bind_password_enc';
-    const secret = n.msClientSecret ? enc(n.msClientSecret) : n.clearMsClientSecret ? 'NULL' : 'ms_client_secret_enc';
+    const keptBind = n.clearLdapBindPassword ? 'NULL' : 'ldap_bind_password_enc';
+    const bindPw = n.ldapBindPassword ? enc(n.ldapBindPassword) : keptBind;
+    const keptSecret = n.clearMsClientSecret ? 'NULL' : 'ms_client_secret_enc';
+    const secret = n.msClientSecret ? enc(n.msClientSecret) : keptSecret;
     await c.query(
       `UPDATE auth_settings SET local_enabled=$1, password_min_length=$2, password_require_upper=$3, password_require_lower=$4,
          password_require_digit=$5, password_require_symbol=$6, lockout_threshold=$7, lockout_minutes=$8,
@@ -159,8 +161,9 @@ export async function testLdapConnection(admin, body, ip) {
   let result;
   try {
     const r = await testDirectory(cfg);
+    const signedIn = cfg.bindDn ? ` as ${cfg.bindDn}` : ' anonymously';
     result = r.baseFound
-      ? { ok: true, message: `Connected to ${cfg.host}:${cfg.port} (${cfg.security.toUpperCase()})${cfg.bindDn ? ` as ${cfg.bindDn}` : ' anonymously'} and found the search base.` }
+      ? { ok: true, message: `Connected to ${cfg.host}:${cfg.port} (${cfg.security.toUpperCase()})${signedIn} and found the search base.` }
       : { ok: false, message: 'Connected, but the search base was not found. Check "Search base (base DN)".' };
   } catch (err) {
     result = { ok: false, message: explainLdapError(err, cfg) };

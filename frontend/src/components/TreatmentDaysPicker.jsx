@@ -54,7 +54,7 @@ export default function TreatmentDaysPicker({ start, end, min, value = [], onCha
     if (!allowed(d)) return;
     const m = new Map(chosen);
     if (m.has(d)) m.delete(d);
-    else if (m.size < MAX_SESSION_DAYS) m.set(d, value.length ? value[value.length - 1].shift : DEFAULT_SHIFT); // new day takes the last shift used
+    else if (m.size < MAX_SESSION_DAYS) m.set(d, value.length ? value.at(-1).shift : DEFAULT_SHIFT); // new day takes the last shift used
     emit(m);
   };
   const setShift = (d, s) => { const m = new Map(chosen); m.set(d, s); emit(m); };
@@ -86,7 +86,7 @@ export default function TreatmentDaysPicker({ start, end, min, value = [], onCha
           <b>{MONTHS[toDate(shown).getUTCMonth()]} {toDate(shown).getUTCFullYear()}</b>
           <button type="button" className="drp-nav" aria-label="Next month" disabled={idx >= months.length - 1} onClick={() => setView(months[idx + 1])}><Icon name="next" /></button>
         </div>
-        <div className="drp-grid tdp-grid" role="grid" aria-label="Treatment days">
+        <div className="drp-grid tdp-grid" role="grid" tabIndex={0} aria-label="Treatment days">
           {WD.map((w) => <span key={w} className="drp-wd" aria-hidden="true">{w}</span>)}
           {monthGrid(shown).map((d, i) => (d ? (
             <button key={d} type="button" data-tday={d} className={`drp-day tdp-day ${chosen.has(d) ? 'sel' : ''} ${allowed(d) ? 'in' : ''}`} disabled={!allowed(d)}

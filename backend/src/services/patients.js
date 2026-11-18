@@ -28,12 +28,15 @@ const SELECT = `
     LEFT JOIN portal_user cu ON cu.id = p.created_by_user_id
     LEFT JOIN portal_user uu ON uu.id = p.updated_by_user_id`;
 
-const map = (r) => ({
-  id: r.id, name: r.full_name, mrn: r.mrn, identifierType: r.identifier_type, identifierMasked: `••••••••${r.national_identifier_last2}`,
-  modality: r.modality || '', dateOfBirth: r.date_of_birth ? String(r.date_of_birth instanceof Date ? r.date_of_birth.toISOString() : r.date_of_birth).slice(0, 10) : '',
-  source: r.source_system, active: r.is_active, homeFacilityId: r.home_facility_id, homeClinic: r.home_clinic,
-  createdAt: r.created_at, updatedAt: r.updated_at, createdBy: r.created_by, updatedBy: r.updated_by, requestCount: Number(r.request_count || 0),
-});
+const map = (r) => {
+  const born = r.date_of_birth instanceof Date ? r.date_of_birth.toISOString() : r.date_of_birth;
+  return {
+    id: r.id, name: r.full_name, mrn: r.mrn, identifierType: r.identifier_type, identifierMasked: `••••••••${r.national_identifier_last2}`,
+    modality: r.modality || '', dateOfBirth: r.date_of_birth ? String(born).slice(0, 10) : '',
+    source: r.source_system, active: r.is_active, homeFacilityId: r.home_facility_id, homeClinic: r.home_clinic,
+    createdAt: r.created_at, updatedAt: r.updated_at, createdBy: r.created_by, updatedBy: r.updated_by, requestCount: Number(r.request_count || 0),
+  };
+};
 
 /** Search by name, MRN or the last digits of the ID; filter by clinic and status. Paged. */
 export async function listPatients(user, { q = '', clinicId = '', status = 'active', page = 1, pageSize = 25 } = {}) {

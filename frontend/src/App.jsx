@@ -46,34 +46,67 @@ export default function App() {
   );
 }
 
+function mainNav(h, onRequests) {
+  const nav = [];
+  if (h.usesRequests) {
+    nav.push({ to: '/', label: h.isClinicStaff ? t('nav.myRequests') : t('nav.workQueue'), icon: 'list', on: onRequests });
+    nav.push({ to: '/reports', label: t('nav.reports'), icon: 'chart' });
+  } else if (h.isAdmin) nav.push({ to: '/patients', label: t('nav.patients'), icon: 'users' });
+  if (h.isAdmin) nav.push({ to: '/admin', label: t('nav.adminSettings'), icon: 'gear' });
+  nav.push({ to: '/help', label: t('nav.help'), icon: 'help' });
+  return nav;
+}
+
+function headerClass(brand) {
+  return brand.enabled && (brand.logoUrl || brand.companyName) ? 'branded' : '';
+}
+
+function homeLabel(brand) {
+  const company = brand.enabled && brand.companyName ? `${brand.companyName} — ` : '';
+  return `${company}${brand.portalTitle}, home`;
+}
+
+function navClass(isActive, on) {
+  return `nav-btn ${isActive || on ? 'on' : ''}`;
+}
+
+function UserChip({ user, options, mode, logout }) {
+  const roleText = user.roles.map((r) => ROLE_LABELS[r]).join(', ');
+  const clinicText = user.clinics.map((c) => c.name).join(', ');
+  const signedInClinic = user.clinics.length === 1 ? user.clinics[0].name : null;
+  const titleClinics = clinicText ? ` · ${clinicText}` : '';
+  const lineClinics = clinicText && !signedInClinic ? ` · ${clinicText}` : '';
+  return (
+    <>
+      <div className="who">
+        <span className="av" title={`${user.name} — ${roleText}${titleClinics}`}>{initials(user.name)}</span>
+        <span className="who-t"><b>{user.name}</b><small>{roleText}{lineClinics}</small></span>
+      </div>
+      {user.hasLocalPassword && options?.local && <NavLink to="/account/password" className="btn sm on-dark ghost" style={{ textDecoration: 'none' }}>Password</NavLink>}
+      <button className="btn sm on-dark ghost" onClick={logout}>{mode === 'dev' ? 'Switch user' : 'Sign out'}</button>
+    </>
+  );
+}
+
 function Layout() {
   const { user, unread, logout, mode, options } = useAuth();
   const brand = useBranding();
   const h = roleHelpers(user);
   const loc = useLocation();
   const onRequests = loc.pathname === '/' || loc.pathname.startsWith('/requests') || loc.pathname.startsWith('/patients');
-  const nav = [
-    ...(h.usesRequests ? [{ to: '/', label: h.isClinicStaff ? t('nav.myRequests') : t('nav.workQueue'), icon: 'list', on: onRequests }] : []),
-    ...(h.usesRequests ? [{ to: '/reports', label: t('nav.reports'), icon: 'chart' }] : []),
-    ...(h.isAdmin && !h.usesRequests ? [{ to: '/patients', label: t('nav.patients'), icon: 'users' }] : []),
-    ...(h.isAdmin ? [{ to: '/admin', label: t('nav.adminSettings'), icon: 'gear' }] : []),
-    { to: '/help', label: t('nav.help'), icon: 'help' },
-  ];
-  const roleText = user.roles.map((r) => ROLE_LABELS[r]).join(', ');
-  const clinicText = user.clinics.map((c) => c.name).join(', ');
-  // The clinic chosen at sign-in (the session is limited to it) — shown as a badge in the header.
-  const signedInClinic = user.clinics.length === 1 ? user.clinics[0].name : null;
+  const nav = mainNav(h, onRequests);
+  const home = h.usesRequests ? '/' : '/admin';
   return (
     <>
-      <header className={`top ${brand.enabled && (brand.logoUrl || brand.companyName) ? 'branded' : ''}`}>
+      <header className={`top ${headerClass(brand)}`}>
         <div className="wrap top-in">
-          <NavLink to={h.usesRequests ? '/' : '/admin'} className="brand" style={{ textDecoration: 'none' }} aria-label={`${brand.enabled && brand.companyName ? `${brand.companyName} — ` : ''}${brand.portalTitle}, home`}>
+          <NavLink to={home} className="brand" style={{ textDecoration: 'none' }} aria-label={homeLabel(brand)}>
             <BrandBlock b={brand} />
           </NavLink>
           <nav className="nav" aria-label="Main">
             {nav.map((n) => (
               <NavLink key={n.to} to={n.to} end={n.to === '/'} style={{ textDecoration: 'none' }} title={n.label}
-                className={({ isActive }) => `nav-btn ${isActive || n.on ? 'on' : ''}`}>
+                className={({ isActive }) => navClass(isActive, n.on)}>
                 <Icon name={n.icon} /><span>{n.label}</span>
               </NavLink>
             ))}
@@ -84,12 +117,7 @@ function Layout() {
             <NavLink to="/notifications" className="icon-btn" aria-label={`Notifications, ${unread} unread`}>
               <Icon name="bell" size={20} />{unread > 0 && <span className="dot">{unread}</span>}
             </NavLink>
-            <div className="who">
-              <span className="av" title={`${user.name} — ${roleText}${clinicText ? ` · ${clinicText}` : ''}`}>{initials(user.name)}</span>
-              <span className="who-t"><b>{user.name}</b><small>{roleText}{clinicText && !signedInClinic ? ` · ${clinicText}` : ''}</small></span>
-            </div>
-            {user.hasLocalPassword && options?.local && <NavLink to="/account/password" className="btn sm on-dark ghost" style={{ textDecoration: 'none' }}>Password</NavLink>}
-            <button className="btn sm on-dark ghost" onClick={logout}>{mode === 'dev' ? 'Switch user' : 'Sign out'}</button>
+            <UserChip user={user} options={options} mode={mode} logout={logout} />
           </div>
         </div>
       </header>

@@ -11,6 +11,7 @@ import { mergeValues } from '../domain/templates.js';
 import { loadSla, loadRequest } from '../services/requests.js';
 import { userIdsWithRole } from '../services/users.js';
 import { notify, flushEmails } from '../services/notifications.js';
+import { sendPushToUsers } from '../services/push.js';
 import { audit } from '../services/audit.js';
 
 export async function runReminders(now = new Date()) {
@@ -32,6 +33,7 @@ export async function runReminders(now = new Date()) {
     const freqMs = (sla[stage]?.reminderDays ?? 1) * 86_400_000;
     if (x.last_reminder && now - new Date(x.last_reminder) < freqMs) continue;
 
+    let pushInfo = null;
     const emailIds = await withTx(async (c) => { // NOSONAR
       const r = await loadRequest(c, x.id, true);
       if (!r || r.status !== x.current_status) return [];
@@ -52,10 +54,12 @@ export async function runReminders(now = new Date()) {
         message: `${r.requestNumber} has been ${label} for ${info.days} days (target ${info.target}).`,
         email: { templateCode: 'Reminder', values: mergeValues(r, { 'Days Pending': info.days, 'Target Days': info.target }) },
       });
+      if (userIds.length) pushInfo = { userIds, title: info.kind === 'completion' ? 'Reminder: mark request completed' : 'Reminder: action overdue', message: `${r.requestNumber} has been ${label} for ${info.days} days (target ${info.target}).`, requestId: r.id };
       await audit(c, { user: null, action: 'ReminderSent', entityType: 'Request', entityId: r.requestNumber, detail: { stage, days: info.days, recipients: userIds.length } });
       return ids;
     });
     await flushEmails(emailIds); // NOSONAR
+    if (pushInfo) await sendPushToUsers(pushInfo.userIds, { title: pushInfo.title, body: pushInfo.message, data: { requestId: pushInfo.requestId } }).catch((e) => console.error('[push]', e.message)); // NOSONAR
     sent += 1;
   }
   return sent;
@@ -63,8 +67,13 @@ export async function runReminders(now = new Date()) {
 
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
   assertConfig({ needServer: false });
-  runReminders()
-    .then((n) => { console.log(`[reminders] ${n} request(s) reminded`); })
-    .catch((e) => { console.error('[reminders] failed:', e.message); process.exitCode = 1; })
-    .finally(() => pool.end());
+  try {
+    const n = await runReminders();
+    console.log(`[reminders] ${n} request(s) reminded`);
+  } catch (e) {
+    console.error('[reminders] failed:', e.message);
+    process.exitCode = 1;
+  } finally {
+    await pool.end();
+  }
 }

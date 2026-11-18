@@ -2,7 +2,8 @@
 import crypto from 'node:crypto';
 import { query } from '../../db/pool.js';
 import { config as appConfig } from '../../config.js';
-import { PROTOCOLS, FLOWS, EVENTS, CONFIG_FIELDS, SECRET_KEYS, validateConnection, visibleFields, withDefaults } from '../../domain/integrations.js';
+import { PROTOCOLS, FLOWS, EVENTS, SECRET_KEYS, validateConnection, visibleFields, withDefaults } from '../../domain/integrations.js';
+export { CONFIG_FIELDS } from '../../domain/integrations.js';
 import { validationFailed, notFound, badRequest } from '../../lib/errors.js';
 import { audit } from '../audit.js';
 import * as engine from './engine.js';
@@ -49,6 +50,32 @@ export async function getConnection(id) {
   return { ...c, savedSecrets: await savedSecretFlags(id) };
 }
 
+function readSetting(f, cfgIn, secIn, conn) {
+  if (f.secret) {
+    if (typeof secIn[f.key] === 'string' && secIn[f.key] !== '') conn.secrets[f.key] = secIn[f.key];
+    return;
+  }
+  let v = cfgIn[f.key];
+  if (v === undefined) return;
+  if (f.type === 'number') v = v === '' || v === null ? '' : Number(v);
+  else if (f.type === 'checkbox') v = v === true;
+  else if (f.type === 'multi') v = Array.isArray(v) ? v.filter((x) => x in f.options) : [];
+  else v = String(v ?? '').trim();
+  conn.config[f.key] = v;
+}
+
+function mergeSecrets(conn, body, existingSecrets) {
+  const used = new Set(visibleFields(conn).filter((f) => f.secret).map((f) => f.key));
+  const clear = new Set(Array.isArray(body.clearSecrets) ? body.clearSecrets : []);
+  const merged = {};
+  for (const k of SECRET_KEYS) {
+    if (!used.has(k) || clear.has(k)) continue;
+    if (conn.secrets[k]) merged[k] = conn.secrets[k];
+    else if (existingSecrets[k]) merged[k] = existingSecrets[k];
+  }
+  return merged;
+}
+
 /** Keep only known, applicable settings; split secrets out. */
 function clean(body, existingSecrets = {}) {
   const conn = {
@@ -59,26 +86,10 @@ function clean(body, existingSecrets = {}) {
   const cfgIn = body.config && typeof body.config === 'object' ? body.config : {};
   const secIn = body.secrets && typeof body.secrets === 'object' ? body.secrets : {};
   for (let pass = 0; pass < 2; pass += 1) { // fields can depend on other fields (e.g. auth type)
-    for (const f of visibleFields(conn)) {
-      if (f.secret) { if (typeof secIn[f.key] === 'string' && secIn[f.key] !== '') conn.secrets[f.key] = secIn[f.key]; continue; }
-      let v = cfgIn[f.key];
-      if (v === undefined) continue;
-      if (f.type === 'number') v = v === '' || v === null ? '' : Number(v);
-      else if (f.type === 'checkbox') v = v === true;
-      else if (f.type === 'multi') v = Array.isArray(v) ? v.filter((x) => x in f.options) : [];
-      else v = String(v ?? '').trim();
-      conn.config[f.key] = v;
-    }
+    for (const f of visibleFields(conn)) readSetting(f, cfgIn, secIn, conn);
   }
   // secrets: keep stored ones the screen didn't change; clear ones the admin asked to remove; drop ones no longer used
-  const used = new Set(visibleFields(conn).filter((f) => f.secret).map((f) => f.key));
-  const clear = new Set(Array.isArray(body.clearSecrets) ? body.clearSecrets : []);
-  const merged = {};
-  for (const k of SECRET_KEYS) {
-    if (!used.has(k) || clear.has(k)) continue;
-    if (conn.secrets[k]) merged[k] = conn.secrets[k]; else if (existingSecrets[k]) merged[k] = existingSecrets[k];
-  }
-  conn.secrets = merged;
+  conn.secrets = mergeSecrets(conn, body, existingSecrets);
   return withDefaults(conn);
 }
 
@@ -88,15 +99,35 @@ async function existingSecrets(id) {
   return { conn: c, secrets: c.secrets || {} };
 }
 
+function changeList(before, conn, oldSecrets) {
+  if (!before) return ['created'];
+  const credsChanged = JSON.stringify(Object.keys(oldSecrets).sort()) !== JSON.stringify(Object.keys(conn.secrets).sort())
+    || Object.keys(conn.secrets).some((k) => conn.secrets[k] !== oldSecrets[k]);
+  return [
+    before.name !== conn.name && 'name',
+    before.protocol !== conn.protocol && 'protocol',
+    before.enabled !== conn.enabled && (conn.enabled ? 'switched ON' : 'switched OFF'),
+    JSON.stringify(before.flows) !== JSON.stringify(conn.flows) && 'flows',
+    JSON.stringify(before.config) !== JSON.stringify(conn.config) && 'settings',
+    credsChanged ? 'credentials' : null,
+  ].filter(Boolean);
+}
+
 export async function saveConnection(admin, id, ip, body = {}) {
   if (!(await engine.tablesReady())) throw badRequest('Run database migration 014_integrations.sql first.');
   let before = null; let oldSecrets = {};
-  if (id) { if (!isUuid(id)) throw notFound('Connection not found.'); const e = await existingSecrets(id); before = e.conn; oldSecrets = e.secrets; }
+  if (id) {
+    if (!isUuid(id)) throw notFound('Connection not found.');
+    const e = await existingSecrets(id);
+    before = e.conn;
+    oldSecrets = e.secrets;
+  }
   const conn = clean(body, oldSecrets);
   const errors = validateConnection(conn, Object.fromEntries(Object.keys(conn.secrets).map((k) => [k, true])));
   if (Object.keys(errors).length) throw validationFailed(errors);
   const secretJson = Object.keys(conn.secrets).length ? JSON.stringify(conn.secrets) : null;
   let newId = id;
+  const changed = changeList(before, conn, oldSecrets);
   if (id) {
     await query(
       `UPDATE integration_connection SET name=$2, protocol=$3, enabled=$4, flows=$5, config=$6::jsonb,
@@ -109,11 +140,6 @@ export async function saveConnection(admin, id, ip, body = {}) {
       [conn.name, conn.protocol, conn.enabled, conn.flows, JSON.stringify(conn.config), secretJson, KEY(), admin.id]);
     newId = rows[0].id;
   }
-  const changed = !before ? ['created'] : [
-    before.name !== conn.name && 'name', before.protocol !== conn.protocol && 'protocol', before.enabled !== conn.enabled && (conn.enabled ? 'switched ON' : 'switched OFF'),
-    JSON.stringify(before.flows) !== JSON.stringify(conn.flows) && 'flows', JSON.stringify(before.config) !== JSON.stringify(conn.config) && 'settings',
-    JSON.stringify(Object.keys(oldSecrets).sort()) !== JSON.stringify(Object.keys(conn.secrets).sort()) || Object.keys(conn.secrets).some((k) => conn.secrets[k] !== oldSecrets[k]) ? 'credentials' : null,
-  ].filter(Boolean);
   await audit(null, { user: admin, action: id ? 'IntegrationUpdated' : 'IntegrationCreated', entityType: 'Integration', entityId: conn.name, detail: { protocol: conn.protocol, flows: conn.flows.join(', '), changed: changed.join(', ') || 'no change' }, ip });
   await refreshListeners();
   return getConnection(newId);
@@ -207,7 +233,7 @@ export async function messagePayload(admin, id, ip) {
   if (!rows[0]) throw notFound('Message not found.');
   await audit(null, { user: admin, action: 'IntegrationMessageViewed', entityType: 'Integration', entityId: rows[0].name, detail: { message: id, summary: rows[0].summary }, ip });
   const body = rows[0].payload || '';
-  return { format: rows[0].payload_format, payload: rows[0].payload_format === 'HL7V2' ? body.replace(/\r/g, '\n') : body, response: rows[0].response };
+  return { format: rows[0].payload_format, payload: rows[0].payload_format === 'HL7V2' ? body.replaceAll('\r', '\n') : body, response: rows[0].response };
 }
 
 export async function retryMessage(admin, id, ip) {
@@ -225,5 +251,3 @@ export async function retryMessage(admin, id, ip) {
 let listenerHook = null;
 export const setListenerHook = (fn) => { listenerHook = fn; };
 async function refreshListeners() { if (listenerHook) await listenerHook().catch((e) => console.error('[mllp]', e.message)); }
-
-export { CONFIG_FIELDS };

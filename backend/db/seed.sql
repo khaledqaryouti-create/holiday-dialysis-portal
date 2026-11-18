@@ -237,7 +237,7 @@ SELECT pg_temp.seed_request('241284','laila.alharbi@clinics.example','Internal',
 
 INSERT INTO request_comment (request_id, comment_text, created_by_user_id, created_at)
 SELECT r.id, 'Patient prefers morning sessions if possible.', r.created_by_user_id, now() - interval '1 day'
-FROM holiday_dialysis_request r JOIN patient_reference p ON p.id = r.patient_reference_id
+FROM holiday_dialysis_request AS r JOIN patient_reference AS p ON p.id = r.patient_reference_id
 WHERE p.mrn = '248211' AND r.current_status = 'PendingClinicResponse';
 
 INSERT INTO notification (user_id, request_id, notification_type, title, message, created_at, channel, delivery_status)

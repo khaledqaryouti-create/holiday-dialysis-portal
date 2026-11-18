@@ -10,17 +10,19 @@ import { query, withTx } from '../db/pool.js';
 import { config } from '../config.js';
 import { hashPassword, verifyPassword } from '../lib/passwords.js';
 import { passwordProblems, passwordMessage } from '../domain/auth.js';
+import { isEmail } from '../domain/validation.js';
 import { validationFailed, AppError } from '../lib/errors.js';
 import { loadAuthSettings } from './authSettings.js';
 import { passwordPolicy } from './authentication.js';
 import { sendMail } from './mailer.js';
 import { audit } from './audit.js';
 
+const defaultDb = { query };
+
 export const RESET_MINUTES = 30;
 const PER_USER_PER_HOUR = 3;
 const PER_IP_PER_HOUR = 10;
 const sha = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
-const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 /** Address the links point to: APP_URL (set this in production), else the address the request came in on. */
 function baseUrl(req) {
@@ -40,7 +42,7 @@ export async function requestReset(req, email) {
   if (!s.localEnabled) throw new AppError(403, 'METHOD_DISABLED', 'Password reset is not available. Contact the IT Service Desk.');
   if (!(await ready())) throw new AppError(503, 'NOT_READY', 'Password reset is not set up yet. Contact the IT Service Desk.');
   const addr = String(email || '').trim().toLowerCase().slice(0, 254);
-  if (!EMAIL_RE.test(addr)) throw validationFailed({ email: 'Enter your work email address.' });
+  if (!isEmail(addr)) throw validationFailed({ email: 'Enter your work email address.' });
   const ip = String(req.ip || '').slice(0, 64);
 
   const started = Date.now();
@@ -84,20 +86,27 @@ export async function requestReset(req, email) {
   }
 }
 
-async function findToken(token, db = { query }) {
+async function findToken(token, db) {
   if (!/^[A-Za-z0-9_-]{30,100}$/.test(String(token || ''))) return null;
-  const { rows } = await db.query(
+  const handle = db || defaultDb;
+  const { rows } = await handle.query(
     `SELECT t.id, t.user_id, t.expires_at, t.used_at, u.email, u.display_name, u.account_status, u.password_hash
        FROM password_reset_token t JOIN portal_user u ON u.id = t.user_id WHERE t.token_hash = $1`, [sha(token)]);
   return rows[0] || null;
 }
 const BAD_LINK = 'This reset link is not valid any more (it was used, it expired or a newer link was sent). Ask for a new link.';
 
+function maskEmail(email) {
+  const at = String(email || '').lastIndexOf('@');
+  if (at <= 0) return email;
+  return `${email[0]}•••${email.slice(at)}`;
+}
+
 /** Step 2a: the reset page checks the link before showing the form. */
 export async function checkToken(token) {
   const t = await findToken(token);
   if (!t || t.used_at || new Date(t.expires_at) < new Date() || t.account_status !== 'Active' || !t.password_hash) return { ok: false, message: BAD_LINK };
-  return { ok: true, email: t.email.replace(/^(.).*(@.*)$/, (m, a, b) => `${a}•••${b}`), policy: await passwordPolicy() };
+  return { ok: true, email: maskEmail(t.email), policy: await passwordPolicy() };
 }
 
 /** Step 2b: set the new password. */

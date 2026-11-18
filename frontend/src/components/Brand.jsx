@@ -36,19 +36,27 @@ export function BrandBlock({ b, stacked = false }) {
 }
 
 /** Contact lines with icons and working links. */
+function contactValue(row) {
+  if (row.href) {
+    const external = row.href.startsWith('http');
+    return <a href={row.href} dir={row.dir} target={external ? '_blank' : undefined} rel={external ? 'noopener noreferrer' : undefined}>{row.text}</a>;
+  }
+  return <span style={row.pre ? { whiteSpace: 'pre-line' } : undefined}>{row.text}</span>;
+}
+
 export function ContactList({ c = {}, className = '' }) {
   const site = c.website ? normalizeWebsite(c.website) : null;
   const rows = [
-    c.phone && ['phone', <a href={telHref(c.phone)} dir="ltr">{c.phone}</a>, 'Phone'],
-    c.email && ['mail', <a href={`mailto:${c.email}`}>{c.email}</a>, 'Email'],
-    site && ['globe', <a href={site} target="_blank" rel="noopener noreferrer">{site.replace(/^https?:\/\//, '')}</a>, 'Website'],
-    c.address && ['pin', <span style={{ whiteSpace: 'pre-line' }}>{c.address}</span>, 'Address'],
-    c.hours && ['clock', <span>{c.hours}</span>, 'Hours'],
+    c.phone && { icon: 'phone', label: 'Phone', text: c.phone, href: telHref(c.phone), dir: 'ltr' },
+    c.email && { icon: 'mail', label: 'Email', text: c.email, href: `mailto:${c.email}` },
+    site && { icon: 'globe', label: 'Website', text: site.replace(/^https?:\/\//, ''), href: site },
+    c.address && { icon: 'pin', label: 'Address', text: c.address, pre: true },
+    c.hours && { icon: 'clock', label: 'Hours', text: c.hours },
   ].filter(Boolean);
   if (!rows.length) return null;
   return (
     <ul className={`contact-list ${className}`}>
-      {rows.map(([ic, v, label]) => <li key={label}><Icon name={ic} size={16} /><span className="sr-only">{label}: </span>{v}</li>)}
+      {rows.map((row) => <li key={row.label}><Icon name={row.icon} size={16} /><span className="sr-only">{row.label}: </span>{contactValue(row)}</li>)}
     </ul>
   );
 }

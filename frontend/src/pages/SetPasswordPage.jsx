@@ -30,9 +30,9 @@ export default function SetPasswordPage() {
     try {
       await api.post('/auth/password-setup', { token, password });
       setDone(true);
-    } catch (err) {
-      if (err.fields?.password) setFieldErr(err.fields.password);
-      else setError(err);
+    } catch (error_) {
+      if (error_.fields?.password) setFieldErr(error_.fields.password);
+      else setError(error_);
     } finally { setBusy(false); }
   };
 

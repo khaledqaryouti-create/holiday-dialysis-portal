@@ -35,7 +35,7 @@ export default function ValidationRulesPage() {
     try {
       const r = await api.put('/admin/validation-settings', { rules: f });
       data.setData(r); setF(structuredClone(r.rules)); toast('Validation rules saved. They apply from now on.');
-    } catch (x) { setErr(x.fields || {}); toast(x.message, 'bad'); } finally { setBusy(false); }
+    } catch (error_) { setErr(error_.fields || {}); toast(error_.message, 'bad'); } finally { setBusy(false); }
   }
   async function reset() {
     if (!(await confirm({ title: 'Go back to the standard rules?', body: 'Every field returns to the standard rule (e.g. National ID 10 digits, passport 6–9 letters or digits). Nothing is saved until you click Save.', ok: 'Use standard rules' }))) return;

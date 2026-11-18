@@ -30,21 +30,34 @@ const safe = (s) => String(s).replace(/[^\w.-]+/g, '_');
  * @param {string} controlId unique message id (HL7 MSH-10 etc.)
  * @returns {{ format, contentType, body: string, fileName, summary }}
  */
+const BUILD = {
+  HL7V2: (kind, s, doc, cfg, controlId) => (kind === 'event' ? hl7.buildSiu(s, cfg, controlId) : hl7.buildMdm(s, doc, cfg, controlId)),
+  FHIR: (kind, s, doc, cfg) => JSON.stringify(kind === 'event' ? fhir.requestBundle(s, cfg) : fhir.documentReference(s, doc, cfg), null, 2),
+  CDA: (kind, s, doc, cfg) => (kind === 'event' ? cda.eventDocument(s, cfg) : cda.fileDocument(s, doc, cfg)),
+  CSV: (kind, s, doc) => (kind === 'event' ? json.eventCsv(s) : JSON.stringify(json.documentJson(s, doc), null, 2)),
+  JSON: (kind, s, doc) => JSON.stringify(kind === 'event' ? json.eventJson(s) : json.documentJson(s, doc), null, 2),
+};
+
+function outboundNames(f, kind, s, doc) {
+  const what = kind === 'event' ? s.event : safe(doc.type || 'Document');
+  const docJson = f === 'CSV' && kind !== 'event';
+  return {
+    what, docJson,
+    ext: docJson ? 'json' : EXT[f],
+    contentType: docJson ? 'application/json' : TYPE[f],
+    summary: kind === 'event' ? `${s.requestNumber} · ${s.eventLabel || s.event}` : `${s.requestNumber} · ${doc.title || doc.type}`,
+  };
+}
+
 export function buildOutbound(conn, kind, s, doc, controlId) {
   const f = formatOf(conn);
   const cfg = conn.config || {};
-  let body;
-  if (f === 'HL7V2') body = kind === 'event' ? hl7.buildSiu(s, cfg, controlId) : hl7.buildMdm(s, doc, cfg, controlId);
-  else if (f === 'FHIR') body = JSON.stringify(kind === 'event' ? fhir.requestBundle(s, cfg) : fhir.documentReference(s, doc, cfg), null, 2);
-  else if (f === 'CDA') body = kind === 'event' ? cda.eventDocument(s, cfg) : cda.fileDocument(s, doc, cfg);
-  else if (f === 'CSV') body = kind === 'event' ? json.eventCsv(s) : JSON.stringify(json.documentJson(s, doc), null, 2);
-  else body = JSON.stringify(kind === 'event' ? json.eventJson(s) : json.documentJson(s, doc), null, 2);
-  const what = kind === 'event' ? s.event : safe(doc.type || 'Document');
-  const ext = f === 'CSV' && kind !== 'event' ? 'json' : EXT[f];
+  const build = BUILD[f] || BUILD.JSON;
+  const names = outboundNames(f, kind, s, doc);
   return {
-    format: f, contentType: f === 'CSV' && kind !== 'event' ? 'application/json' : TYPE[f], body,
-    fileName: `${safe(s.requestNumber)}_${what}_${stamp(s.occurredAt)}.${ext}`,
-    summary: kind === 'event' ? `${s.requestNumber} · ${s.eventLabel || s.event}` : `${s.requestNumber} · ${doc.title || doc.type}`,
+    format: f, contentType: names.contentType, body: build(kind, s, doc, cfg, controlId),
+    fileName: `${safe(s.requestNumber)}_${names.what}_${stamp(s.occurredAt)}.${names.ext}`,
+    summary: names.summary,
   };
 }
 

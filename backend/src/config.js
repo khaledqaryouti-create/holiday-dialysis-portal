@@ -4,6 +4,11 @@ import { fileURLToPath } from 'node:url';
 
 const env = process.env;
 const here = path.dirname(fileURLToPath(import.meta.url));
+const trimEndSlashes = (s) => {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === 47) end -= 1;
+  return end === s.length ? s : s.slice(0, end);
+};
 export const BACKEND_ROOT = path.resolve(here, '..');
 
 export const config = Object.freeze({
@@ -13,7 +18,7 @@ export const config = Object.freeze({
   appBaseUrl: env.APP_BASE_URL || 'http://localhost:5173',
   timeZone: env.APP_TIME_ZONE || 'Asia/Riyadh',
   // The portal's address as users open it, e.g. https://holiday-dialysis.hospital.local — used in password-reset emails.
-  appUrl: (env.APP_URL || '').replace(/\/+$/, ''),
+  appUrl: trimEndSlashes(env.APP_URL || ''),
 
   db: {
     url: env.DATABASE_URL,
@@ -58,19 +63,23 @@ export const config = Object.freeze({
   jobs: { integrationSeconds: Number(env.JOBS_INTERVAL_SECONDS ?? env.INTEGRATION_INTERVAL_SECONDS ?? 60) },
 });
 
+function serverProblems() {
+  const problems = [];
+  if (config.auth.sessionSecret.length < 32) problems.push('SESSION_SECRET must be at least 32 characters (use `openssl rand -base64 48`).');
+  if (!['dev', 'standard'].includes(config.auth.mode)) problems.push('AUTH_MODE must be "dev" or "standard".');
+  if (config.isProd && config.auth.mode === 'dev') problems.push('AUTH_MODE=dev is not allowed when NODE_ENV=production.');
+  if (config.storage.driver === 'supabase' && (!config.storage.supabaseUrl || !config.storage.supabaseServiceRoleKey)) {
+    problems.push('STORAGE_DRIVER=supabase needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.');
+  }
+  return problems;
+}
+
 /** Fail fast with a readable message instead of a stack trace deep in a request. */
 export function assertConfig({ needServer = true } = {}) {
   const problems = [];
   if (!config.db.url) problems.push('DATABASE_URL is not set (Supabase: Project Settings → Database → Connection string).');
   if (!config.fieldKey || config.fieldKey.length < 16) problems.push('FIELD_ENCRYPTION_KEY must be set (at least 16 characters; use `openssl rand -base64 32`).');
-  if (needServer) {
-    if (config.auth.sessionSecret.length < 32) problems.push('SESSION_SECRET must be at least 32 characters (use `openssl rand -base64 48`).');
-    if (!['dev', 'standard'].includes(config.auth.mode)) problems.push('AUTH_MODE must be "dev" or "standard".');
-    if (config.isProd && config.auth.mode === 'dev') problems.push('AUTH_MODE=dev is not allowed when NODE_ENV=production.');
-    if (config.storage.driver === 'supabase' && (!config.storage.supabaseUrl || !config.storage.supabaseServiceRoleKey)) {
-      problems.push('STORAGE_DRIVER=supabase needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.');
-    }
-  }
+  if (needServer) problems.push(...serverProblems());
   if (needServer && process.env.VERCEL && config.storage.driver !== 'supabase') {
     console.warn('[config] Running on Vercel with STORAGE_DRIVER=local: the disk is read-only, so document uploads will fail. Set STORAGE_DRIVER=supabase, SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.');
   }

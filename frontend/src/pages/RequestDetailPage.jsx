@@ -7,9 +7,8 @@ import { useAuth, roleHelpers } from '../auth.jsx';
 import { Icon } from '../components/Icon.jsx';
 import { Timeline } from '../components/Timeline.jsx';
 import DateRangePicker, { addDaysIso } from '../components/DateRangePicker.jsx';
-import { CONFIRMED_DATES_TOLERANCE_DAYS } from '@domain/constants.js';
-import { useUi, StatusPill, DestChip, Loading, ErrorBox, FieldError, Modal, fmtSize } from '../components/ui.jsx';
-import { DEST, DEST_LABELS, DOC_TYPES, REASON_MAX, MAX_DATE_OPTIONS } from '@domain/constants.js';
+import { useUi, StatusPill, DestChip, Loading, FieldError, Modal, fmtSize } from '../components/ui.jsx';
+import { CONFIRMED_DATES_TOLERANCE_DAYS, DEST, DOC_TYPES, REASON_MAX, MAX_DATE_OPTIONS } from '@domain/constants.js';
 import { validateConfirmedDates, validateReason, isEmail, validateFile, validateDateOptions } from '@domain/validation.js';
 import { fmtRange, fmtTS, daysBetween } from '../lib/format.js';
 import { t, destLabel } from '../terms.jsx';
@@ -25,7 +24,7 @@ export default function RequestDetailPage() {
   const [comment, setComment] = useState('');
 
   const load = () => api.get(`/requests/${id}`).then((x) => { setR(x); setError(null); }).catch(setError);
-  useEffect(() => { setR(null); load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [id]);
+  useEffect(() => { setR(null); void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [id]);
 
   /** Run an action; on success replace the request with the server's fresh copy. */
   async function act(fn, success) {
@@ -33,12 +32,12 @@ export default function RequestDetailPage() {
       const next = await fn();
       if (next) setR(next);
       if (success) toast(success);
-      refreshMe();
+      void refreshMe();
       return true;
-    } catch (e) {
-      if (e instanceof ApiError && ['STALE', 'INVALID_STATE'].includes(e.code)) { toast(e.message, 'bad'); load(); return false; }
-      if (e instanceof ApiError && Object.keys(e.fields).length) throw e; // forms show field errors
-      toast(e.message, 'bad');
+    } catch (error_) {
+      if (error_ instanceof ApiError && ['STALE', 'INVALID_STATE'].includes(error_.code)) { toast(error_.message, 'bad'); void load(); return false; }
+      if (error_ instanceof ApiError && Object.keys(error_.fields).length) throw error_; // forms show field errors
+      toast(error_.message, 'bad');
       return false;
     }
   }
@@ -133,8 +132,8 @@ export default function RequestDetailPage() {
           <details className="sec" open><summary><Icon name="chat" />Activity & Comments<Icon name="chev" className="chev" /></summary>
             <div className="body">
               <div className="log">
-                {activity.map((a, i) => (
-                  <div key={i} className={`log-i ${a.k}`}><span className="dot" /><div><b>{a.title}</b><small>{fmtTS(a.at)}<br />{a.who}</small></div><p>{a.text}</p></div>
+                {activity.map((a) => (
+                  <div key={`${a.at}|${a.title}|${a.who}`} className={`log-i ${a.k}`}><span className="dot" /><div><b>{a.title}</b><small>{fmtTS(a.at)}<br />{a.who}</small></div><p>{a.text}</p></div>
                 ))}
               </div>
               {can('comment') && (
@@ -152,7 +151,7 @@ export default function RequestDetailPage() {
             <div className="row small muted"><Icon name="info" /><span>Only the requesting clinic can withdraw this request.</span>
               <button className="textlink danger" onClick={async () => {
                 if (await confirm({ title: 'Withdraw this request?', body: 'The request will be closed as Withdrawn and the coordination team told that no action is needed. This cannot be undone.', ok: 'Withdraw request', tone: 'danger' })) {
-                  act(() => api.post(`/requests/${r.id}/withdraw`, { rowVersion: r.rowVersion }), 'Request withdrawn');
+                  void act(() => api.post(`/requests/${r.id}/withdraw`, { rowVersion: r.rowVersion }), 'Request withdrawn');
                 }
               }}>Withdraw request</button></div>
           )}
@@ -203,7 +202,7 @@ function actionPanels({ r, can, nav, confirm, toast, act, waitText }) {
         <div><h2>Completion</h2><p className="hint">{can('complete') ? 'Travel has ended. Mark the request as completed to close it.' : waitText}</p></div>
         <button className="btn brand block" disabled={!can('complete')} onClick={async () => {
           if (await confirm({ title: 'Mark as completed?', body: 'The request becomes read-only. Comments can still be added.', ok: 'Mark as completed', tone: 'brand' })) {
-            act(() => api.post(`/requests/${r.id}/complete`, { rowVersion: r.rowVersion }), 'Request completed');
+            void act(() => api.post(`/requests/${r.id}/complete`, { rowVersion: r.rowVersion }), 'Request completed');
           }
         }}><Icon name="flag" />Mark as completed</button>
       </div>,
@@ -230,7 +229,7 @@ function DraftPanel({ r, nav, confirm, toast }) {
       <Link className="btn primary block" to={`/requests/${r.id}/edit`}><Icon name="edit" />Continue editing</Link>
       <button className="btn danger block" onClick={async () => {
         if (!(await confirm({ title: 'Discard this draft?', body: `Draft ${r.requestNumber} and its files will be deleted. This cannot be undone.`, ok: 'Discard draft', tone: 'danger' }))) return;
-        try { await api.del(`/requests/${r.id}`); toast('Draft discarded'); nav('/'); } catch (e) { toast(e.message, 'bad'); }
+        try { await api.del(`/requests/${r.id}`); toast('Draft discarded'); nav('/'); } catch (error_) { toast(error_.message, 'bad'); }
       }}>Discard draft</button>
     </div>
   );
@@ -247,13 +246,13 @@ function ClinicResponsePanel({ r, act, confirm, canPropose, proposeBlocked }) {
     const e = validateConfirmedDates(r, start, end);
     if (e) return setErr({ confirmedDates: e });
     if (!(await confirm({ title: 'Approve and confirm sessions?', body: `Sessions ${fmtRange(start, end)} at ${r.receivingFacilityName} will be confirmed, a confirmation letter generated and ${r.createdByName} notified.`, ok: 'Approve', tone: 'brand' }))) return;
-    try { await act(() => api.post(`/requests/${r.id}/approve`, { confirmedStart: start, confirmedEnd: end, rowVersion: r.rowVersion }), 'Request approved and confirmed'); } catch (x) { setErr(x.fields); }
+    try { await act(() => api.post(`/requests/${r.id}/approve`, { confirmedStart: start, confirmedEnd: end, rowVersion: r.rowVersion }), 'Request approved and confirmed'); } catch (error_) { setErr(error_.fields); }
   };
   const reject = async () => {
     const e = validateReason(reason, 'rejection reason');
     if (e) return setErr({ reason: e });
     if (!(await confirm({ title: 'Reject this request?', body: `The request will be closed as Rejected and ${r.createdByName} will see your reason. This cannot be undone.`, ok: 'Reject request', tone: 'danger' }))) return;
-    try { await act(() => api.post(`/requests/${r.id}/reject`, { reason, rowVersion: r.rowVersion }), 'Request rejected'); } catch (x) { setErr(x.fields); }
+    try { await act(() => api.post(`/requests/${r.id}/reject`, { reason, rowVersion: r.rowVersion }), 'Request rejected'); } catch (error_) { setErr(error_.fields); }
   };
   if (proposing) {
     return (
@@ -267,8 +266,8 @@ function ClinicResponsePanel({ r, act, confirm, canPropose, proposeBlocked }) {
     <div className="stack" style={{ gap: 14 }}>
       <div><h2>Clinic Response</h2><p className="hint">To be completed by {r.receivingFacilityName}.</p></div>
       <div>
-        <label className="small" style={{ fontWeight: 600 }}>Confirmed session dates <span style={{ color: 'var(--bad-fg)' }}>*</span></label>
-        <div style={{ marginTop: 6 }}><SessionsPicker r={r} start={start} end={end} invalid={!!err.confirmedDates} onChange={(v) => { setStart(v.start); setEnd(v.end); setErr({}); }} /></div>
+        <label className="small" htmlFor="clinic-sessions" style={{ fontWeight: 600 }}>Confirmed session dates <span style={{ color: 'var(--bad-fg)' }}>*</span></label>
+        <div style={{ marginTop: 6 }}><SessionsPicker id="clinic-sessions" r={r} start={start} end={end} invalid={!!err.confirmedDates} onChange={(v) => { setStart(v.start); setEnd(v.end); setErr({}); }} /></div>
         <p className="hint" style={{ marginTop: 4 }}>Requested: {fmtRange(r.travelStart, r.travelEnd)}. The calendar shades them.</p>
         <FieldError msg={err.confirmedDates} />
       </div>
@@ -304,7 +303,7 @@ function SendPanel({ r, act }) {
   const ready = sel && (sel !== '__free' || isEmail(email));
   const body = () => (sel === '__free' ? { recipientEmail: email } : { facilityId: sel });
   const openPreview = async () => {
-    try { setPreview(await api.get(`/requests/${r.id}/provider-email${qs(body())}`)); } catch (e) { setErr(e.fields || {}); }
+    try { setPreview(await api.get(`/requests/${r.id}/provider-email${qs(body())}`)); } catch (error_) { setErr(error_.fields || {}); }
   };
   return (
     <div className="stack" style={{ gap: 14 }}>
@@ -331,7 +330,7 @@ function SendPanel({ r, act }) {
         <Modal title="Review email to provider" wide onClose={() => setPreview(null)}
           footer={<><button className="btn" onClick={() => setPreview(null)}>Cancel</button>
             <button className="btn primary" onClick={async () => {
-              const ok = await act(() => api.post(`/requests/${r.id}/send-to-provider`, { ...body(), rowVersion: r.rowVersion }), 'Email sent to provider').catch((e) => { setErr(e.fields || {}); return false; });
+              const ok = await act(() => api.post(`/requests/${r.id}/send-to-provider`, { ...body(), rowVersion: r.rowVersion }), 'Email sent to provider').catch((error_) => { setErr(error_.fields || {}); return false; });
               if (ok !== undefined) setPreview(null);
             }}><Icon name="send" />Send email</button></>}>
           <div className="banner warn" style={{ margin: 0 }}><Icon name="alert" /><span>External providers don’t have portal access. This email is sent outside the portal.</span></div>
@@ -380,7 +379,7 @@ function RecordPanel({ r, act, confirm, canPropose }) {
     else if (outcome === 'Alternative') { form.append('options', JSON.stringify(options)); form.append('notes', notes); }
     else form.append('reason', reason);
     if (file) form.append('replyFile', file);
-    try { await act(() => api.upload(`/requests/${r.id}/provider-response`, form), outcome === 'Approved' ? 'Provider approval recorded' : outcome === 'Alternative' ? 'Other dates sent to the requester' : 'Provider decline recorded'); } catch (x) { setErr(x.fields || {}); }
+    try { await act(() => api.upload(`/requests/${r.id}/provider-response`, form), outcome === 'Approved' ? 'Provider approval recorded' : outcome === 'Alternative' ? 'Other dates sent to the requester' : 'Provider decline recorded'); } catch (error_) { setErr(error_.fields || {}); }
   };
   return (
     <div className="stack" style={{ gap: 14 }}>
@@ -410,7 +409,7 @@ function RecordPanel({ r, act, confirm, canPropose }) {
       <button className={`btn ${outcome === 'Declined' ? 'danger' : outcome === 'Alternative' ? 'primary' : 'brand'} block`} disabled={!ready} onClick={save}>
         <Icon name={outcome === 'Approved' ? 'checkc' : outcome === 'Alternative' ? 'clock' : 'x'} />{outcome === 'Approved' ? 'Save approved response' : outcome === 'Alternative' ? 'Send other dates to requester' : 'Save declined response'}
       </button>
-      <button className="btn ghost sm" onClick={() => act(() => api.post(`/requests/${r.id}/resend-to-provider`, { rowVersion: r.rowVersion }), 'Email resent')}><Icon name="send" />Resend email to provider</button>
+      <button className="btn ghost sm" onClick={() => { void act(() => api.post(`/requests/${r.id}/resend-to-provider`, { rowVersion: r.rowVersion }), 'Email resent'); }}><Icon name="send" />Resend email to provider</button>
     </div>
   );
 }
@@ -429,8 +428,8 @@ function OtherDatesBranch({ r, options, setOptions, setErr, err, notes, setNotes
 function ApprovedBranch({ r, start, end, notes, err, setStart, setEnd, setNotes, setErr }) {
   return (
     <>
-      <div><label className="small" style={{ fontWeight: 600 }}>Confirmed session dates <span style={{ color: 'var(--bad-fg)' }}>*</span></label>
-        <div style={{ marginTop: 6 }}><SessionsPicker r={r} start={start} end={end} invalid={!!err.confirmedDates} onChange={(v) => { setStart(v.start); setEnd(v.end); setErr({}); }} /></div>
+      <div><label className="small" htmlFor="provider-sessions" style={{ fontWeight: 600 }}>Confirmed session dates <span style={{ color: 'var(--bad-fg)' }}>*</span></label>
+        <div style={{ marginTop: 6 }}><SessionsPicker id="provider-sessions" r={r} start={start} end={end} invalid={!!err.confirmedDates} onChange={(v) => { setStart(v.start); setEnd(v.end); setErr({}); }} /></div>
         <p className="hint" style={{ marginTop: 4 }}>Requested: {fmtRange(r.travelStart, r.travelEnd)}</p><FieldError msg={err.confirmedDates} /></div>
       <div><label htmlFor="rp-notes" className="small" style={{ fontWeight: 600 }}>Notes from the provider</label>
         <textarea id="rp-notes" className="input" style={{ marginTop: 6, minHeight: 70 }} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. arrive 30 minutes before the first session" /></div>
@@ -447,7 +446,7 @@ function DeclinedBranch({ reason, setReason, err }) {
 }
 
 // ---------------------------------------------------------------- Other dates (instead of declining)
-const blankOption = () => ({ start: '', end: '', sessions: '', note: '', sessionPlan: [] });
+const blankOption = () => ({ localId: crypto.randomUUID(), start: '', end: '', sessions: '', note: '', sessionPlan: [] });
 function OptionDays({ plan }) {
   if (!plan?.length) return null;
   return <ul className="plan-list">{plan.map((x) => <li key={x.date}>{shortDay(x.date)} — <b>{shiftLabel(x.shift)}</b></li>)}</ul>;
@@ -460,7 +459,7 @@ function DateOptionsEditor({ options, setOptions, err, minDate, reference }) {
   return (
     <div className="stack" style={{ gap: 10 }}>
       {options.map((o, i) => (
-        <div key={i} className="opt-edit">
+        <div key={o.localId} className="opt-edit">
           <div className="spread"><b className="small">Option {i + 1}</b>
             {options.length > 1 && <button type="button" className="textlink danger small" onClick={() => setOptions(options.filter((_, j) => j !== i))}>Remove</button>}</div>
           <DateRangePicker ariaLabel={`Option ${i + 1} dates`} placeholder="Choose first and last session" min={minDate} start={o.start} end={o.end}
@@ -490,7 +489,7 @@ function ProposeDatesForm({ r, act, confirm, onCancel }) {
     const e = validateDateOptions(options, todayIso(), { max: MAX_DATE_OPTIONS });
     setErr(e); if (Object.keys(e).length) return;
     if (!(await confirm({ title: 'Send these dates to the requester?', body: `${r.createdByName} at ${r.requestingFacilityName} will be asked to accept one option or ask for other dates. The request waits for their answer.`, ok: 'Propose dates', tone: 'brand' }))) return;
-    try { await act(() => api.post(`/requests/${r.id}/propose-dates`, { options, message, rowVersion: r.rowVersion }), 'Other dates proposed'); } catch (x) { setErr(x.fields || {}); }
+    try { await act(() => api.post(`/requests/${r.id}/propose-dates`, { options, message, rowVersion: r.rowVersion }), 'Other dates proposed'); } catch (error_) { setErr(error_.fields || {}); }
   };
   return (
     <div className="stack" style={{ gap: 12 }}>
@@ -544,12 +543,12 @@ function AnswerProposalPanel({ r, act, confirm, canAskAgain, askBlocked }) {
     const form = new FormData();
     form.append('optionId', opt.id); form.append('approvalsConfirmed', String(covered)); form.append('rowVersion', String(r.rowVersion));
     if (file) form.append('approvalFile', file);
-    try { await act(() => api.upload(`/requests/${r.id}/accept-proposed-dates`, form), 'Dates accepted. Request confirmed'); } catch (x) { setErr(x.fields || {}); }
+    try { await act(() => api.upload(`/requests/${r.id}/accept-proposed-dates`, form), 'Dates accepted. Request confirmed'); } catch (error_) { setErr(error_.fields || {}); }
   };
   const askAgain = async () => {
     const e = validateReason(reason, 'reason'); if (e) return setErr({ reason: e });
     if (!(await confirm({ title: 'Ask for other dates?', body: r.destinationType === 'Internal' ? `${r.receivingFacilityName} will be asked to propose other dates, approve or reject.` : 'The coordination team will contact the provider again.', ok: 'Ask for other dates', tone: 'brand' }))) return;
-    try { await act(() => api.post(`/requests/${r.id}/request-other-dates`, { reason, rowVersion: r.rowVersion }), 'Other dates requested'); } catch (x) { setErr(x.fields || {}); }
+    try { await act(() => api.post(`/requests/${r.id}/request-other-dates`, { reason, rowVersion: r.rowVersion }), 'Other dates requested'); } catch (error_) { setErr(error_.fields || {}); }
   };
   return (
     <div className="stack" style={{ gap: 14 }}>
@@ -598,16 +597,29 @@ function AnswerProposalPanel({ r, act, confirm, canAskAgain, askBlocked }) {
 }
 
 /** Confirmed sessions: limited to the requested dates ± the allowed tolerance, with the requested dates shaded. */
-function SessionsPicker({ r, start, end, onChange, invalid }) {
+function SessionsPicker({ id, r, start, end, onChange, invalid }) {
   const tol = CONFIRMED_DATES_TOLERANCE_DAYS;
   const min = r.travelStart ? addDaysIso(r.travelStart, -tol) : undefined;
   const max = r.travelEnd ? addDaysIso(r.travelEnd, tol) : undefined;
   return (
-    <DateRangePicker ariaLabel="Confirmed session dates" placeholder="Choose first and last session" months={1} sameDay
+    <DateRangePicker id={id} ariaLabel="Confirmed session dates" placeholder="Choose first and last session" months={1} sameDay
       start={start} end={end} min={min} max={max} invalid={invalid} onChange={onChange}
       reference={{ start: r.travelStart, end: r.travelEnd, label: 'Requested' }}
       presets={[{ label: 'Same as requested', start: r.travelStart, end: r.travelEnd }]} />
   );
+}
+
+function countryCodeLength(d) {
+  const first = d[0];
+  const two = d.slice(0, 2);
+  if ('17'.includes(first)) return 1;
+  if (first === '2') return ['20', '27'].includes(two) ? 2 : 3;
+  if ('34'.includes(first)) return ['35', '37', '38', '42'].includes(two) ? 3 : 2;
+  if (first === '5') return ['50', '59'].includes(two) ? 3 : 2;
+  if (first === '6') return Number(two) <= 66 ? 2 : 3;
+  if (first === '8') return ['81', '82', '84', '86'].includes(two) ? 2 : 3;
+  if (first === '9') return ['90', '91', '92', '93', '94', '95', '98'].includes(two) ? 2 : 3;
+  return 2;
 }
 
 /** +966501234567 → +966 50 123 4567; other countries: +CC then groups of 3 (country code length by ITU zone). */
@@ -617,14 +629,7 @@ function fmtPhone(v) {
   if (m) return `+966 ${m[1]} ${m[2]} ${m[3]}`;
   const d = s.replace(/^\+/, '');
   if (!/^\d{8,15}$/.test(d)) return s;
-  const two = d.slice(0, 2);
-  const len = '17'.includes(d[0]) ? 1
-    : d[0] === '2' ? (['20', '27'].includes(two) ? 2 : 3)
-      : '34'.includes(d[0]) ? (['35', '37', '38', '42'].includes(two) ? 3 : 2)
-        : d[0] === '5' ? (['50', '59'].includes(two) ? 3 : 2)
-          : d[0] === '6' ? (Number(two) <= 66 ? 2 : 3)
-            : d[0] === '8' ? (['81', '82', '84', '86'].includes(two) ? 2 : 3)
-              : d[0] === '9' ? (['90', '91', '92', '93', '94', '95', '98'].includes(two) ? 2 : 3) : 2;
+  const len = countryCodeLength(d);
   const rest = d.slice(len); const groups = [];
   for (let i = 0; i < rest.length;) { const left = rest.length - i; const n = left === 4 ? 4 : 3; groups.push(rest.slice(i, i + n)); i += n; }
   return `+${d.slice(0, len)} ${groups.join(' ')}`;

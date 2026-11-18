@@ -1,6 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from './Icon.jsx';
-import { STATUS_META, DEST_LABELS } from '@domain/constants.js';
+import { STATUS_META } from '@domain/constants.js';
 import { statusLabel, statusShort, destLabel } from '../terms.jsx';
 
 // ---------------------------------------------------------------- toasts + confirm dialog
@@ -17,13 +17,14 @@ export function UiProvider({ children }) {
   /** confirm({title, body, ok, tone}) → Promise<boolean> */
   const confirm = useCallback((opts) => new Promise((resolve) => setDialog({ ...opts, resolve })), []);
   const close = (v) => { dialog?.resolve(v); setDialog(null); };
+  const value = useMemo(() => ({ toast, confirm }), [toast, confirm]);
   return (
-    <UiCtx.Provider value={{ toast, confirm }}>
+    <UiCtx.Provider value={value}>
       {children}
       {dialog && (
         <Modal title={dialog.title} onClose={() => close(false)}
           footer={<><button className="btn" onClick={() => close(false)}>Cancel</button>
-            <button className={`btn ${dialog.tone || 'primary'}`} onClick={() => close(true)} autoFocus>{dialog.ok || 'Confirm'}</button></>}>
+            <button className={`btn ${dialog.tone || 'primary'}`} onClick={() => close(true)}>{dialog.ok || 'Confirm'}</button></>}>
           <p>{dialog.body}</p>
         </Modal>
       )}
@@ -40,11 +41,12 @@ export function Modal({ title, children, footer, onClose, wide = false }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
     document.addEventListener('keydown', onKey);
-    ref.current?.querySelector('input,textarea,select,button.primary,button.brand')?.focus();
+    ref.current?.querySelector('input,textarea,select,button.primary,button.brand,button.danger')?.focus();
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
   return (
-    <div className="scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose?.(); }}>
+    <div className="scrim">
+      <button type="button" className="scrim-dismiss" aria-label="Close" onClick={() => onClose?.()} />
       <div className={`modal ${wide ? 'wide' : ''}`} role="dialog" aria-modal="true" aria-label={title} ref={ref}>
         <div className="modal-h"><h2>{title}</h2><button className="x" onClick={onClose} aria-label="Close"><Icon name="x" /></button></div>
         <div className="modal-b">{children}</div>
@@ -81,7 +83,7 @@ export function useLoad(fn, deps) {
   const [s, setS] = useState({ data: null, error: null, loading: true });
   const run = useCallback(async () => {
     setS((x) => ({ ...x, loading: true, error: null }));
-    try { setS({ data: await fn(), error: null, loading: false }); } catch (e) { setS({ data: null, error: e, loading: false }); }
+    try { setS({ data: await fn(), error: null, loading: false }); } catch (error_) { setS({ data: null, error: error_, loading: false }); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
   useEffect(() => { run(); }, [run]);

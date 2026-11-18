@@ -4,8 +4,8 @@ import { config } from '../config.js';
 
 // DATE → 'YYYY-MM-DD' string (never a JS Date: avoids time-zone shifts). int8 → number (counts are small).
 pg.types.setTypeParser(1082, (v) => v);
-pg.types.setTypeParser(20, (v) => Number(v));
-pg.types.setTypeParser(1700, (v) => Number(v)); // numeric (averages in reports)
+pg.types.setTypeParser(20, Number);
+pg.types.setTypeParser(1700, Number); // numeric (averages in reports)
 
 function sslOption() {
   if (config.db.ssl === 'verify') {

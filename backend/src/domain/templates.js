@@ -30,5 +30,25 @@ export function mergeValues(r, extra = {}) {
 
 /** Replace {{Field}} placeholders; unknown fields are left as-is so typos are visible in previews. */
 export function renderTemplate(text, values) {
-  return String(text || '').replace(/\{\{\s*([^}]+?)\s*\}\}/g, (m, key) => (values[key] ?? values[key] === 0 ? String(values[key]) : m));
+  const src = String(text || '');
+  let out = '';
+  let i = 0;
+  while (i < src.length) {
+    const start = src.indexOf('{{', i);
+    if (start < 0) { out += src.slice(i); break; }
+    const end = src.indexOf('}}', start + 2);
+    if (end < 0) { out += src.slice(i); break; }
+    const rawKey = src.slice(start + 2, end);
+    const key = rawKey.trim();
+    if (!key || rawKey.includes('}')) {
+      out += src.slice(i, start + 2);
+      i = start + 2;
+      continue;
+    }
+    out += src.slice(i, start);
+    const present = values[key] ?? values[key] === 0;
+    out += present ? String(values[key]) : src.slice(start, end + 2);
+    i = end + 2;
+  }
+  return out;
 }

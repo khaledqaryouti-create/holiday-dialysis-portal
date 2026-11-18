@@ -27,4 +27,4 @@ startScheduler({
 });
 // Inbound HL7 v2 MLLP listeners (one per connection that has a listen port).
 setListenerHook(refreshMllpListeners);
-refreshMllpListeners().catch((e) => console.error('[mllp]', e.message));
+await refreshMllpListeners().catch((e) => console.error('[mllp]', e.message));

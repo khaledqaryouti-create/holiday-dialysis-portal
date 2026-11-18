@@ -14,7 +14,10 @@ let failed = false;
 for (const [name, fn] of Object.entries(JOBS)) { // NOSONAR integrations, then reminders, then the pool closes
   if (which !== 'all' && which !== name) continue;
   const r = await runJob(name, fn); // NOSONAR
-  console.log(`[jobs] ${name}: ${!r.ran ? 'skipped (another server is running it)' : r.ok ? `done ${JSON.stringify(r.result ?? '')}` : `FAILED ${r.error}`}`);
+  const skipped = 'skipped (another server is running it)';
+  const done = `done ${JSON.stringify(r.result ?? '')}`;
+  const outcome = r.ok ? done : `FAILED ${r.error}`;
+  console.log(`[jobs] ${name}: ${!r.ran ? skipped : outcome}`);
   if (r.ran && !r.ok) failed = true;
 }
 await pool.end();

@@ -40,4 +40,9 @@ async function main() {
   }
 }
 
-main().catch((e) => { console.error(`[migrate] ${e.message}`); process.exitCode = 1; });
+try {
+  await main();
+} catch (e) {
+  console.error(`[migrate] ${e.message}`);
+  process.exitCode = 1;
+}

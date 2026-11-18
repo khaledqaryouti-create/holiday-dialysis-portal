@@ -9,7 +9,7 @@ import DateRangePicker from '../components/DateRangePicker.jsx';
 import TreatmentDaysPicker, { shortDay, shiftLabel } from '../components/TreatmentDaysPicker.jsx';
 import { normalizePlan } from '@domain/sessionPlan.js';
 import { useUi, ErrorBox, FieldError, Loading, fmtSize } from '../components/ui.jsx';
-import { DEST, DEST_LABELS, DOC_TYPES, WIZARD_DOC_TYPES } from '@domain/constants.js';
+import { DEST, DOC_TYPES, WIZARD_DOC_TYPES } from '@domain/constants.js';
 import { validatePatientStep, validateDestinationStep, validateAttachmentsStep, validateFile } from '@domain/validation.js';
 import { todayIn, fmtDate, daysBetween } from '@domain/dates.js';
 import { DEFAULT_FIELD_RULES, DEFAULT_FORM_COLORS, isRequired, isHidden } from '@domain/formRules.js';
@@ -137,7 +137,7 @@ export default function WizardPage() {
       setStep(fromReview ? 4 : step + 1);
       setFromReview(false);
       window.scrollTo(0, 0);
-    } catch (err) { handleApiError(err); } finally { setBusy(false); }
+    } catch (error_) { handleApiError(error_); } finally { setBusy(false); }
   }
 
   async function submit() {
@@ -147,12 +147,12 @@ export default function WizardPage() {
       const r = await api.post(`/requests/${saved.id}/submit`, { confirm: true, rowVersion: saved.rowVersion });
       toast(`Request ${r.requestNumber} submitted`);
       nav(`/requests/${r.id}`, { replace: true });
-    } catch (err) { handleApiError(err); } finally { setBusy(false); }
+    } catch (error_) { handleApiError(error_); } finally { setBusy(false); }
   }
 
   async function saveAndExit() {
     setBusy(true);
-    try { const r = await saveDraft(); toast(`Draft ${r.requestNumber} saved`); nav('/'); } catch (err) { handleApiError(err); } finally { setBusy(false); }
+    try { const r = await saveDraft(); toast(`Draft ${r.requestNumber} saved`); nav('/'); } catch (error_) { handleApiError(error_); } finally { setBusy(false); }
   }
 
   async function cancel() {
@@ -180,10 +180,10 @@ export default function WizardPage() {
       const doc = await api.upload(`/requests/${id}/documents`, form);
       setDocs((x) => ({ ...x, [type]: doc }));
       setErrs((e) => ({ ...e, [type]: undefined }));
-    } catch (e2) { handleApiError(e2); } finally { setBusy(false); }
+    } catch (error_) { handleApiError(error_); } finally { setBusy(false); }
   }
   async function removeFile(type) {
-    try { await api.del(`/requests/${draft.id}/documents/${docs[type].id}`); setDocs((x) => { const n = { ...x }; delete n[type]; return n; }); } catch (e) { handleApiError(e); }
+    try { await api.del(`/requests/${draft.id}/documents/${docs[type].id}`); setDocs((x) => { const n = { ...x }; delete n[type]; return n; }); } catch (error_) { handleApiError(error_); }
   }
 
   if (loading) return <Loading />;
@@ -250,7 +250,7 @@ function usePatientLookup(updPatient) {
   const useEmr = async (p) => {
     setEmr((e) => ({ ...e, importing: p.mrn }));
     try { choose(await api.post('/patients/emr-import', { connectionId: p.connectionId, mrn: p.mrn })); setEmr(null); }
-    catch (x) { setEmr((e) => ({ ...e, importing: null, error: x.message })); }
+    catch (error_) { setEmr((e) => ({ ...e, importing: null, error: error_.message })); }
   };
   const suggestions = (where, typed, locked) => open === where && !locked && typed.trim().length >= 2 && (
     <div className="list">
@@ -354,7 +354,7 @@ function StepPatient({ d, user, errs, upd, updPatient, rules, vr }) {
             [DEST.EXTERNAL_KSA, 'DaVita, Al Muwasat or Bupa — emailed by the coordination team'],
             [DEST.INTERNATIONAL, 'A facility outside Saudi Arabia — emailed by the coordination team']].map(([v, help]) => (
             <label key={v} className="radio-card">
-              <input type="radio" name="destType" checked={d.destinationType === v}
+              <input type="radio" name="destType" aria-label={destLabel(v)} checked={d.destinationType === v}
                 onChange={() => upd({ destinationType: v, destinationCity: '', destinationCountry: '', receivingFacilityId: '', freeTextFacility: '' })} />
               <span><b>{destLabel(v)}</b><small>{help}</small></span>
             </label>
@@ -504,6 +504,16 @@ function UploadCard({ type, label, tag, req, hint, doc, err, dim, accept, onFile
   );
 }
 
+function ReviewSection({ title, step, rows, onEdit }) {
+  return (
+    <div className="card">
+      <div className="sec-h"><h3>{title}</h3><button type="button" className="textlink" onClick={() => onEdit(step)}><Icon name="edit" size={15} />Edit</button></div>
+      <dl className="kv pad">{rows.map(([k, v]) => <FragmentKV key={k} k={k} v={v} />)}</dl>
+    </div>
+  );
+}
+const FragmentKV = ({ k, v }) => <><dt>{k}</dt><dd>{v || '—'}</dd></>;
+
 // ---------------------------------------------------------------- Step 4
 function StepReview({ d, user, docs, rules, otherFacility, confirmed, setConfirmed, errs, onEdit }) {
   const [facName, setFacName] = useState('');
@@ -511,31 +521,25 @@ function StepReview({ d, user, docs, rules, otherFacility, confirmed, setConfirm
     if (otherFacility || !d.receivingFacilityId) { setFacName(d.freeTextFacility || '—'); return; }
     api.get(`/reference/facilities${qs({ destinationType: d.destinationType })}`).then((l) => setFacName(l.find((f) => f.id === d.receivingFacilityId)?.name || '—')).catch(() => {});
   }, [d.receivingFacilityId, d.destinationType, d.freeTextFacility, otherFacility]);
-  const Sec = ({ title, step, rows }) => (
-    <div className="card">
-      <div className="sec-h"><h3>{title}</h3><button type="button" className="textlink" onClick={() => onEdit(step)}><Icon name="edit" size={15} />Edit</button></div>
-      <dl className="kv pad">{rows.map(([k, v]) => <FragmentKV key={k} k={k} v={v} />)}</dl>
-    </div>
-  );
   const internal = d.destinationType === DEST.INTERNAL;
   return (
     <>
       <div className="review-grid">
-        <Sec title="Patient & Destination" step={1} rows={[
+        <ReviewSection title="Patient & Destination" step={1} rows={[
           [t('field.mrn'), d.patient.mrn], [t('field.patientName'), d.patient.name],
           ['ID number', d.patient.id ? d.patient.identifierMasked : `${d.patient.identifier} (${d.patient.identifierType === 'Passport' ? 'Passport' : 'National ID / Iqama'})`],
           ...(isHidden(rules, 'patientMobile') ? [] : [['Patient mobile', d.patientMobile || '—']]),
           ...(isHidden(rules, 'relativeMobile') && isHidden(rules, 'relativeName') ? [] : [['Relative', d.relativeMobile || d.relativeName ? [d.relativeName, d.relativeMobile].filter(Boolean).join(' · ') : '—']]),
           [t('field.homeClinic'), user.clinics.map((c) => c.name).join(', ')], [t('field.requestingStaff'), user.name], [t('field.destinationType'), destLabel(d.destinationType)],
         ]} />
-        <Sec title="Clinical & Destination Details" step={2} rows={[
+        <ReviewSection title="Clinical & Destination Details" step={2} rows={[
           ['Destination', d.destinationType === DEST.INTERNATIONAL ? `${d.destinationCity}, ${d.destinationCountry}` : `${d.destinationCity}, KSA`],
           [t('field.receivingFacility'), facName], ['Travel start', fmtDate(d.travelStart)], ['Travel end', fmtDate(d.travelEnd)],
           ['Length of stay', d.travelStart && d.travelEnd ? `${daysBetween(d.travelStart, d.travelEnd)} days` : '—'], [t('field.treatmentDays'), d.sessionPlan.length ? <ul className="plan-list">{d.sessionPlan.map((x) => <li key={x.date}>{shortDay(x.date)} — <b>{shiftLabel(x.shift)}</b></li>)}</ul> : '—'],
         ]} />
       </div>
       <div style={{ marginTop: 16 }}>
-        <Sec title="Attachments" step={3} rows={WIZARD_DOC_TYPES.filter((t) => !isHidden(rules, t) && (rules[t] !== 'whenApplies' || d.modApplies)).map((t) => [DOC_TYPES[t].label,
+        <ReviewSection title="Attachments" step={3} rows={WIZARD_DOC_TYPES.filter((t) => !isHidden(rules, t) && (rules[t] !== 'whenApplies' || d.modApplies)).map((t) => [DOC_TYPES[t].label,
           docs[t] ? <>{docs[t].fileName} <span className="muted">· {fmtSize(docs[t].size)}</span></> : !isRequired(rules, t, d) ? <span className="muted">Not uploaded (optional)</span> : <span style={{ color: 'var(--bad-fg)' }}>Missing</span>])} />
       </div>
       <div className="banner info" style={{ marginTop: 16 }}><Icon name="send" />
@@ -546,4 +550,3 @@ function StepReview({ d, user, docs, rules, otherFacility, confirmed, setConfirm
     </>
   );
 }
-const FragmentKV = ({ k, v }) => <><dt>{k}</dt><dd>{v || '—'}</dd></>;

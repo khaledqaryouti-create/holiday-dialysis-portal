@@ -30,7 +30,7 @@ reportsRouter.use(requireRole(ROLES.CLINIC_STAFF, ROLES.COORD_INTERNAL, ROLES.CO
 reportsRouter.get('/summary', ah(async (req, res) => res.json(await reportSummary(req.user, req.query))));
 reportsRouter.get('/export.csv', ah(async (req, res) => {
   const r = await reportSummary(req.user, req.query);
-  const cell = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const cell = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s; };
   const lines = [['Request ID', 'Submitted (UTC)', 'Home clinic', 'Destination type', 'Facility', 'Status', 'Decision', 'Days to decision'].join(',')]
     .concat(r.rows.map((x) => [x.requestNumber, new Date(x.submittedAt).toISOString(), x.requestingFacility, x.destinationType, x.facility, x.status, x.decision, x.daysToDecision].map(cell).join(',')));
   await audit(null, { user: req.user, action: 'Export', entityType: 'Report', entityId: 'summary', detail: { rows: r.rows.length, filters: r.filters }, ip: req.ip });

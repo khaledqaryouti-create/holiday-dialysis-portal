@@ -37,7 +37,7 @@ export default function FormFieldsPage() {
     try {
       const r = await api.put('/admin/form-settings', f);
       data.setData(r); setF(formFrom(r)); toast('Form fields saved. New requests use them from now on.');
-    } catch (x) { setErr(x.fields || {}); toast(x.message, 'bad'); } finally { setBusy(false); }
+    } catch (error_) { setErr(error_.fields || {}); toast(error_.message, 'bad'); } finally { setBusy(false); }
   }
   async function reset() {
     if (!(await confirm({ title: 'Go back to the standard settings?', body: 'Every field returns to its standard setting and the colours to the standard red and blue. Nothing is saved until you click Save.', ok: 'Use standard settings' }))) return;
@@ -137,10 +137,10 @@ function Preview({ f }) {
     <section className={`card pad ff-preview wiz ${f.highlightRequired ? 'hl-req' : ''}`}>
       <div className="eyebrow" style={{ marginBottom: 10 }}>Preview</div>
       <div className="form-grid" style={{ gridTemplateColumns: '1fr' }}>
-        <label className="lbl">Patient name <span className="req">*</span></label><div><input className="input" readOnly tabIndex={-1} placeholder="Full name" /></div>
+        <label className="lbl" htmlFor="ff-prev-name">Patient name <span className="req">*</span></label><div><input id="ff-prev-name" className="input" readOnly tabIndex={-1} placeholder="Full name" /></div>
         {rows.map(([k, l, ph]) => (
           <Fragment key={k}>
-            <label className="lbl">{l} {mark(k)}</label><div><input className="input" readOnly tabIndex={-1} placeholder={ph || (isRequired(r, k) ? '' : 'Optional')} /></div>
+            <label className="lbl" htmlFor={`ff-prev-${k}`}>{l} {mark(k)}</label><div><input id={`ff-prev-${k}`} className="input" readOnly tabIndex={-1} placeholder={ph || (isRequired(r, k) ? '' : 'Optional')} /></div>
           </Fragment>
         ))}
       </div>

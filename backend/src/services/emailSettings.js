@@ -68,7 +68,8 @@ export async function saveEmailSettings(admin, body, ip) {
     const keepsPassword = !n.clearPassword && !!saved.password;
     const errs = validateEmailSettings(n, { hasSavedPassword: keepsPassword });
     if (Object.keys(errs).length) throw validationFailed(errs);
-    const pwSql = n.password ? 'pgp_sym_encrypt($14, $15)' : n.clearPassword ? 'NULL' : 'password_enc';
+    const cleared = n.clearPassword ? 'NULL' : 'password_enc';
+    const pwSql = n.password ? 'pgp_sym_encrypt($14, $15)' : cleared;
     await c.query(
       `UPDATE email_settings SET enabled=$1, host=$2, port=$3, security=$4, auth_required=$5, username=$6,
               from_name=$7, from_email=$8, reply_to=$9, allow_self_signed=$10, timeout_seconds=$11,
@@ -99,7 +100,10 @@ export async function testConnection(admin, body, ip) {
   const s = await candidate(body);
   try {
     await withTimeout(transportFor(s).verify(), s.timeoutSeconds);
-    const message = `Connected to ${s.host}:${s.port} (${s.security === 'ssl' ? 'SSL/TLS' : s.security === 'starttls' ? 'STARTTLS' : 'no encryption'})${s.authRequired ? ` and signed in as ${s.username}` : ''}.`;
+    const mode = s.security === 'starttls' ? 'STARTTLS' : 'no encryption';
+    const security = s.security === 'ssl' ? 'SSL/TLS' : mode;
+    const signedIn = s.authRequired ? ` and signed in as ${s.username}` : '';
+    const message = `Connected to ${s.host}:${s.port} (${security})${signedIn}.`;
     await recordTest(admin, true, message, ip, 'EmailConnectionTested');
     return { ok: true, message };
   } catch (err) {

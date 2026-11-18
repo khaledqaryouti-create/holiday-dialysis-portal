@@ -9,6 +9,7 @@ import { unreadCount } from '../services/notifications.js';
 import { audit } from '../services/audit.js';
 import * as signin from '../services/authentication.js';
 import * as reset from '../services/passwordReset.js';
+import { registerDevice, unregisterDevice } from '../services/push.js';
 
 export const authRouter = Router();
 
@@ -23,10 +24,15 @@ authRouter.get('/me', ah(async (req, res) => {
   res.json({ user: req.user, unread: await unreadCount(req.user.id) });
 }));
 
-authRouter.post('/logout', (req, res) => {
+authRouter.post('/logout', ah(async (req, res) => {
+  if (req.user && req.body?.deviceToken) await unregisterDevice(req.user.id, String(req.body.deviceToken)).catch(() => {});
   clearSession(res);
   res.json({ ok: true });
-});
+}));
+
+// Mobile app push-token registration (any signed-in user).
+authRouter.post('/devices', requireAuth, ah(async (req, res) => { await registerDevice(req.user.id, req.body?.token, req.body?.platform); res.json({ ok: true }); }));
+authRouter.delete('/devices', requireAuth, ah(async (req, res) => { await unregisterDevice(req.user.id, req.body?.token); res.json({ ok: true }); }));
 
 // ---------------------------------------------------------------- forgot password (portal passwords)
 authRouter.post('/forgot-password', ah(async (req, res) => {
@@ -62,7 +68,7 @@ async function completeSignIn(req, res, userId, method, clinicChoice) {
     clinicId = r.clinicId;
     if (clinicId) { user.clinicIds = [clinicId]; user.clinics = user.clinics.filter((c) => c.id === clinicId); user.activeClinicId = clinicId; }
   }
-  issueSession(res, user.id, method, clinicId);
+  req.sessionToken = issueSession(res, user.id, method, clinicId);
   await touchSignIn(user.id, method);
   await audit(null, { user, action: 'SignedIn', entityType: 'User', entityId: user.email, detail: { method, ...(clinicId ? { clinic: user.clinics[0]?.name || clinicId } : {}) }, ip: req.ip });
   return user;
@@ -89,7 +95,9 @@ authRouter.post('/login', ah(async (req, res) => {
     throw new AppError(403, 'METHOD_DISABLED', 'User name and password sign-in is switched off.');
   }
   const user = await completeSignIn(req, res, userId, method, String(req.body?.clinicId ?? ''));
-  res.json({ user: method === 'local' ? user : { ...user, mustChangePassword: false } });
+  const base = method === 'local' ? user : { ...user, mustChangePassword: false };
+  // The mobile app (sends "X-Client: mobile") gets the session token to store securely and send as a Bearer header.
+  res.json(req.get('x-client') === 'mobile' ? { user: base, token: req.sessionToken } : { user: base });
 }));
 
 /** Clinics this user name may choose on the sign-in page (assigned, active network clinics only). */

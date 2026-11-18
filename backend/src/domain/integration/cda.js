@@ -3,17 +3,22 @@
 
 import { planText } from '../sessionPlan.js';
 
-export const xml = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
-const unxml = (v) => String(v ?? '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
-const ts = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(String(d)) ? String(d).replace(/-/g, '') : new Date(d).toISOString().replace(/[-:T]/g, '').slice(0, 14) + '+0000');
+export const xml = (v) => String(v ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&apos;');
+const unxml = (v) => String(v ?? '').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&quot;', '"').replaceAll('&apos;', "'").replaceAll('&amp;', '&');
+const ts = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(String(d)) ? String(d).replaceAll('-', '') : new Date(d).toISOString().replace(/[-:T]/g, '').slice(0, 14) + '+0000');
 const ROOT_NATIONAL_ID = '2.16.682.1.113883.2.2.1'; // placeholder OID for Saudi national ID; override via config if needed
 
 function header(s, cfg, { title, code, codeName, docId }) {
   const org = cfg.cdaOrgOid || '2.25.1';
   const p = s.patient;
   const parts = String(p.name || '').trim().split(/\s+/);
-  const ids = [`<id root="${xml(cfg.cdaMrnRoot || `${org}.1`)}" extension="${xml(p.mrn)}" assigningAuthorityName="MRN"/>`];
-  if (p.identifier) ids.push(`<id root="${p.identifierType === 'Passport' ? `${org}.3` : ROOT_NATIONAL_ID}" extension="${xml(p.identifier)}" assigningAuthorityName="${p.identifierType === 'Passport' ? 'Passport' : 'National ID / Iqama'}"/>`);
+  const mrnRoot = cfg.cdaMrnRoot || `${org}.1`;
+  const ids = [`<id root="${xml(mrnRoot)}" extension="${xml(p.mrn)}" assigningAuthorityName="MRN"/>`];
+  if (p.identifier) {
+    const idRoot = p.identifierType === 'Passport' ? `${org}.3` : ROOT_NATIONAL_ID;
+    const idLabel = p.identifierType === 'Passport' ? 'Passport' : 'National ID / Iqama';
+    ids.push(`<id root="${idRoot}" extension="${xml(p.identifier)}" assigningAuthorityName="${idLabel}"/>`);
+  }
   return `<?xml version="1.0" encoding="UTF-8"?>
 <ClinicalDocument xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <realmCode code="SA"/>
@@ -32,7 +37,7 @@ function header(s, cfg, { title, code, codeName, docId }) {
       ${ids.join('\n      ')}
       ${p.mobile ? `<telecom use="MC" value="tel:${xml(p.mobile)}"/>` : ''}
       <patient>
-        <name><given>${xml(parts.length > 1 ? parts.slice(0, -1).join(' ') : '')}</given><family>${xml(parts.length > 1 ? parts.slice(-1)[0] : parts[0] || '')}</family></name>
+        <name><given>${xml(parts.length > 1 ? parts.slice(0, -1).join(' ') : '')}</given><family>${xml(parts.length > 1 ? parts.at(-1) : parts[0] || '')}</family></name>
         ${p.dateOfBirth ? `<birthTime value="${ts(p.dateOfBirth)}"/>` : '<birthTime nullFlavor="UNK"/>'}
       </patient>
       <providerOrganization><id root="${xml(org)}" extension="${xml(s.requestingClinic.code || '')}"/><name>${xml(s.requestingClinic.name || '')}</name></providerOrganization>
@@ -59,7 +64,9 @@ export function eventDocument(s, cfg) {
     ...(s.confirmed ? [['Confirmed sessions', `${s.confirmed.start} to ${s.confirmed.end}`]] : []),
     ...(s.note ? [['Note', s.note]] : []),
   ];
-  return `${header(s, cfg, { title: `Holiday dialysis request ${s.requestNumber} — ${s.eventLabel || s.event}`, code: '57133-1', codeName: 'Referral note', docId: `${s.requestNumber}-${s.event}-${Date.parse(s.occurredAt) || 0}` })}
+  const title = `Holiday dialysis request ${s.requestNumber} — ${s.eventLabel || s.event}`;
+  const docId = `${s.requestNumber}-${s.event}-${Date.parse(s.occurredAt) || 0}`;
+  return `${header(s, cfg, { title, code: '57133-1', codeName: 'Referral note', docId })}
   <component>
     <structuredBody>
       <component>
@@ -77,7 +84,9 @@ export function eventDocument(s, cfg) {
 
 /** CDA wrapping a file (e.g. the confirmation letter PDF) in a nonXMLBody. */
 export function fileDocument(s, doc, cfg) {
-  return `${header(s, cfg, { title: `${doc.title || doc.type} — ${s.requestNumber}`, code: '11488-4', codeName: 'Consult note', docId: `${s.requestNumber}-${doc.ref || '1'}` })}
+  const title = `${doc.title || doc.type} — ${s.requestNumber}`;
+  const docId = `${s.requestNumber}-${doc.ref || '1'}`;
+  return `${header(s, cfg, { title, code: '11488-4', codeName: 'Consult note', docId })}
   <component>
     <nonXMLBody>
       <text mediaType="${xml(doc.contentType || 'application/pdf')}" representation="B64">${Buffer.from(doc.data).toString('base64')}</text>
@@ -87,26 +96,155 @@ export function fileDocument(s, doc, cfg) {
 `;
 }
 
+function readTag(src, i) {
+  if (src[i] !== '<') return null;
+  let j = i + 1;
+  const closing = src[j] === '/';
+  if (closing) j += 1;
+  const start = j;
+  while (j < src.length) {
+    const c = src[j];
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f' || c === '>' || c === '/') break;
+    j += 1;
+  }
+  let name = src.slice(start, j);
+  const colon = name.lastIndexOf(':');
+  if (colon >= 0) name = name.slice(colon + 1);
+  return { name, closing };
+}
+
+function findTag(src, name, from, closing) {
+  let i = from;
+  while (i < src.length) {
+    const lt = src.indexOf('<', i);
+    if (lt < 0) return -1;
+    const tag = readTag(src, lt);
+    if (tag && tag.closing === closing && tag.name === name) return lt;
+    i = lt + 1;
+  }
+  return -1;
+}
+
+function sliceElement(src, name) {
+  const open = findTag(src, name, 0, false);
+  if (open < 0) return '';
+  const close = findTag(src, name, open + 1, true);
+  if (close < 0) return '';
+  const end = src.indexOf('>', close);
+  if (end < 0) return '';
+  return src.slice(open, end + 1);
+}
+
+function attr(tag, name) {
+  const key = `${name}="`;
+  let i = 0;
+  while (i < tag.length) {
+    const at = tag.indexOf(key, i);
+    if (at < 0) return '';
+    const prev = at === 0 ? ' ' : tag[at - 1];
+    if (prev === ' ' || prev === '\t' || prev === '\n' || prev === '\r' || prev === '\f' || prev === '<') {
+      const vStart = at + key.length;
+      const vEnd = tag.indexOf('"', vStart);
+      if (vEnd < 0) return '';
+      return unxml(tag.slice(vStart, vEnd));
+    }
+    i = at + 1;
+  }
+  return '';
+}
+
+function stripTags(s) {
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] !== '<') { out += s[i]; continue; }
+    const gt = s.indexOf('>', i + 1);
+    if (gt < 0) break;
+    i = gt;
+  }
+  return out;
+}
+
+function tagTexts(src, name) {
+  const out = [];
+  let from = 0;
+  while (from < src.length) {
+    const open = findTag(src, name, from, false);
+    if (open < 0) break;
+    const gt = src.indexOf('>', open);
+    if (gt < 0) break;
+    if (src[gt - 1] === '/') { from = gt + 1; continue; }
+    const close = findTag(src, name, gt + 1, true);
+    if (close < 0) break;
+    const inner = unxml(stripTags(src.slice(gt + 1, close)).trim());
+    if (inner) out.push(inner);
+    const end = src.indexOf('>', close);
+    from = (end < 0 ? close : end) + 1;
+  }
+  return out;
+}
+
+function openTags(src, name) {
+  const tags = [];
+  let from = 0;
+  while (from < src.length) {
+    const open = findTag(src, name, from, false);
+    if (open < 0) break;
+    const gt = src.indexOf('>', open);
+    if (gt < 0) break;
+    tags.push(src.slice(open, gt + 1));
+    from = gt + 1;
+  }
+  return tags;
+}
+
+function digits(s, n) {
+  if (s.length < n) return false;
+  for (let i = 0; i < n; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 48 || c > 57) return false;
+  }
+  return true;
+}
+
+function collapseSpace(s) {
+  let out = '';
+  let spaced = false;
+  for (const ch of s) {
+    const ws = ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '\f';
+    if (ws) {
+      if (out && !spaced) out += ' ';
+      spaced = true;
+    } else {
+      out += ch;
+      spaced = false;
+    }
+  }
+  return out.trim();
+}
+
+const hasText = (s, needle) => String(s || '').toLowerCase().includes(needle);
+
 /** Patient record from a CDA document's recordTarget. */
 export function patientFromCda(text, cfg) {
   const src = String(text || '');
-  const role = (src.match(/<(?:\w+:)?patientRole\b[\s\S]*?<\/(?:\w+:)?patientRole>/) || [])[0];
+  const role = sliceElement(src, 'patientRole');
   if (!role) throw new Error('No recordTarget/patientRole in the CDA document.');
-  const attr = (tag, name) => { const m = tag.match(new RegExp(`\\b${name}="([^"]*)"`)); return m ? unxml(m[1]) : ''; };
-  const ids = [...role.matchAll(/<(?:\w+:)?id\b[^>]*\/?>/g)].map((m) => ({ root: attr(m[0], 'root'), ext: attr(m[0], 'extension'), auth: attr(m[0], 'assigningAuthorityName') }));
+  const ids = openTags(role, 'id').map((tag) => ({ root: attr(tag, 'root'), ext: attr(tag, 'extension'), auth: attr(tag, 'assigningAuthorityName') }));
   const mrnRoot = cfg.cdaMrnRoot || `${cfg.cdaOrgOid || '2.25.1'}.1`;
-  const mrn = ids.find((i) => i.root === mrnRoot) || ids.find((i) => /mrn|medical record/i.test(i.auth)) || ids[0];
-  const natId = ids.find((i) => i.root === ROOT_NATIONAL_ID || /national|iqama/i.test(i.auth));
-  const pp = ids.find((i) => /passport/i.test(i.auth));
-  const tagText = (name) => [...role.matchAll(new RegExp(`<(?:\\w+:)?${name}\\b[^>]*>([\\s\\S]*?)<\\/(?:\\w+:)?${name}>`, 'g'))].map((m) => unxml(m[1].replace(/<[^>]+>/g, '').trim())).filter(Boolean);
-  const name = [...tagText('given'), ...tagText('family')].join(' ').replace(/\s+/g, ' ').trim();
-  const birth = (role.match(/<(?:\w+:)?birthTime\b[^>]*value="(\d{4})(\d{2})(\d{2})/) || []);
-  const org = (role.match(/<(?:\w+:)?providerOrganization\b[\s\S]*?<\/(?:\w+:)?providerOrganization>/) || [])[0] || '';
-  const orgId = (org.match(/<(?:\w+:)?id\b[^>]*\/?>/) || [])[0];
+  const mrn = ids.find((i) => i.root === mrnRoot) || ids.find((i) => hasText(i.auth, 'mrn') || hasText(i.auth, 'medical record')) || ids[0];
+  const natId = ids.find((i) => i.root === ROOT_NATIONAL_ID || hasText(i.auth, 'national') || hasText(i.auth, 'iqama'));
+  const pp = ids.find((i) => hasText(i.auth, 'passport'));
+  const name = collapseSpace([...tagTexts(role, 'given'), ...tagTexts(role, 'family')].join(' '));
+  const birthTag = openTags(role, 'birthTime')[0] || '';
+  const birth = attr(birthTag, 'value');
+  const dated = digits(birth, 8);
+  const org = sliceElement(role, 'providerOrganization');
+  const orgId = openTags(org, 'id')[0] || '';
+  const otherId = pp ? 'Passport' : null;
   return {
     mrn: mrn?.ext || '', name,
-    identifierType: natId ? 'NationalId' : pp ? 'Passport' : null, identifier: (natId || pp)?.ext || null,
-    dateOfBirth: birth[1] ? `${birth[1]}-${birth[2]}-${birth[3]}` : null,
+    identifierType: natId ? 'NationalId' : otherId, identifier: (natId || pp)?.ext || null,
+    dateOfBirth: dated ? `${birth.slice(0, 4)}-${birth.slice(4, 6)}-${birth.slice(6, 8)}` : null,
     clinicCode: cfg.clinicSource === 'default' ? null : (orgId ? attr(orgId, 'extension') : null) || null,
   };
 }

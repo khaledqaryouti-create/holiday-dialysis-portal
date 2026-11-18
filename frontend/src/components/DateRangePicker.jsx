@@ -24,6 +24,106 @@ export const fmtRangeText = (a, b) => {
   return a.slice(0, 4) === b.slice(0, 4) ? `${fmtShort(a)} – ${fmtDay(b)}` : `${fmtDay(a)} – ${fmtDay(b)}`;
 };
 
+function dayNames(d, { today, s, e2, reference, refOn, mid }) {
+  const names = ['drp-day'];
+  if (d === today) names.push('today');
+  if (refOn) names.push('ref');
+  if (refOn && d === reference.start) names.push('ref-s');
+  if (refOn && d === reference.end) names.push('ref-e');
+  if (d === s || d === e2) names.push('sel');
+  if (d === s) names.push('sel-s');
+  if (d === e2) names.push('sel-e');
+  if (mid) names.push('mid');
+  return names.join(' ');
+}
+
+function DayCell({ d, focus, disabled, today, s, e2, reference, refOn, mid, onHover, onFocus, onPick }) {
+  const requested = refOn ? ` (${reference.label || 'requested'})` : '';
+  return (
+    <button type="button" data-day={d} tabIndex={d === focus ? 0 : -1} disabled={disabled}
+      className={dayNames(d, { today, s, e2, reference, refOn, mid })}
+      aria-pressed={d === s || d === e2} aria-label={`${fmtDay(d)}${requested}`}
+      onMouseEnter={() => onHover(d)} onFocus={() => onFocus(d)} onClick={() => { onFocus(d); onPick(d); }}>
+      {toDate(d).getUTCDate()}
+    </button>
+  );
+}
+
+function blockedRange(start, end, isDisabled) {
+  for (let x = start; x <= end; x = addDaysIso(x, 1)) {
+    if (isDisabled(x)) return true;
+  }
+  return false;
+}
+
+function previewEnd(draft, hover) {
+  if (draft.end) return draft.end;
+  if (draft.start && hover && hover > draft.start) return hover;
+  return '';
+}
+
+function chosenLabel(start, end) {
+  if (start && end) return fmtRangeText(start, end);
+  if (start) return fmtRangeText(start, '');
+  return '';
+}
+
+function triggerClass(invalid, label) {
+  return `input drp-trigger ${invalid ? 'err' : ''} ${label ? '' : 'is-empty'}`;
+}
+
+function triggerLabel(ariaLabel, label) {
+  if (!ariaLabel) return undefined;
+  return `${ariaLabel}${label ? `: ${label}` : ''}`;
+}
+
+function spanText(count, sameDay) {
+  const n = count + (sameDay ? 1 : 0);
+  if (sameDay) return `${n} ${count === 0 ? 'day' : 'days'}`;
+  return `${n} ${count === 1 ? 'night' : 'nights'}`;
+}
+
+function RangePopup({ pop, months, alignRight, ariaLabel, onKey, canPrev, onPrev, onNext, step, shown, onLeave, focus, disabled, today, s, e2, reference, inRef, inRange, onHover, onFocus, onPick, presets, onPreset, clearable, start, end, onClear, sameDay }) {
+  const extra = sameDay ? 1 : 0;
+  const unit = sameDay ? 'days' : 'nights';
+  const legendCount = s && e2 ? ` · ${nights(s, e2) + extra} ${unit}` : '';
+  return (
+    <div className={`drp-pop ${alignRight ? 'right' : ''} m${months}`} ref={pop} role="dialog" tabIndex={-1} aria-label={ariaLabel || 'Choose dates'} onKeyDown={onKey}>
+      <div className="drp-head">
+        <button type="button" className="drp-nav" aria-label="Previous month" disabled={!canPrev} onClick={onPrev}><Icon name="back" /></button>
+        <span className="drp-step">{step}</span>
+        <button type="button" className="drp-nav" aria-label="Next month" onClick={onNext}><Icon name="next" /></button>
+      </div>
+      <div className="drp-months">
+        {shown.map((m) => (
+          <div key={m} className="drp-month">
+            <div className="drp-title">{MONTHS[toDate(m).getUTCMonth()]} {toDate(m).getUTCFullYear()}</div>
+            <div className="drp-grid" role="grid" tabIndex={0} onMouseLeave={onLeave}>
+              {WEEKDAYS.map((w) => <span key={w} className="drp-wd" aria-hidden="true">{w.slice(0, 2)}</span>)}
+              {monthGrid(m).map((d, i) => (d ? (
+                <DayCell key={d} d={d} focus={focus} disabled={disabled(d)} today={today} s={s} e2={e2} reference={reference}
+                  refOn={inRef(d)} mid={inRange(d)} onHover={onHover} onFocus={onFocus} onPick={onPick} />
+              ) : <span key={`b${i}`} />))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="drp-foot">
+        <div className="drp-legend">
+          {reference?.start && <span><i className="sw ref" />{reference.label || 'Requested dates'}: {fmtRangeText(reference.start, reference.end)}</span>}
+          {s && <span><i className="sw sel" />{fmtRangeText(s, e2)}{legendCount}</span>}
+        </div>
+        <div className="drp-actions">
+          {presets.filter((p) => p.start && p.end).map((p) => (
+            <button key={p.label} type="button" className="btn sm" onClick={() => onPreset(p)}>{p.label}</button>
+          ))}
+          {clearable && (start || end || s) && <button type="button" className="btn ghost sm" onClick={onClear}>Clear</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Days of one month laid out in weeks (null = blank cell before the 1st / after the last). */
 function monthGrid(firstIso) {
   const first = toDate(firstIso);
@@ -90,8 +190,7 @@ export default function DateRangePicker({
     if (!s || e) { setDraft({ start: d, end: '' }); return; }          // start a new range
     if (d < s) { setDraft({ start: d, end: '' }); return; }             // clicked before start: move start
     if (d === s && !sameDay) return;                                     // need a later last day
-    // the range may not jump over a disabled day
-    for (let x = s; x <= d; x = addDaysIso(x, 1)) if (disabled(x)) { setDraft({ start: d, end: '' }); return; }
+    if (blockedRange(s, d, disabled)) { setDraft({ start: d, end: '' }); return; } // the range may not jump over a disabled day
     commit({ start: s, end: d });
   }
 
@@ -110,62 +209,31 @@ export default function DateRangePicker({
   }
   useEffect(() => { if (open && focus) pop.current?.querySelector(`[data-day="${focus}"]`)?.focus(); }, [open, focus, view]);
 
-  const s = draft.start; const e2 = draft.end || (s && hover && hover > s ? hover : '');
+  const s = draft.start;
+  const e2 = previewEnd(draft, hover);
   const inRange = (d) => s && e2 && d > s && d < e2;
   const inRef = (d) => reference?.start && reference?.end && d >= reference.start && d <= reference.end;
   const shown = useMemo(() => Array.from({ length: months }, (_, i) => addMonths(view, i)), [view, months]);
   const canPrev = !min || view > monthStart(min);
-
-  const label = start && end ? fmtRangeText(start, end) : start ? fmtRangeText(start, '') : '';
+  const label = chosenLabel(start, end);
   const count = start && end ? nights(start, end) : null;
+  const step = !s || draft.end ? 'Click the first day' : `First day ${fmtDay(s)}. Now click the last day.`;
 
   return (
     <div className="drp" ref={wrap}>
-      <button type="button" id={id} className={`input drp-trigger ${invalid ? 'err' : ''} ${label ? '' : 'is-empty'}`} aria-haspopup="dialog" aria-expanded={open}
-        aria-label={ariaLabel ? `${ariaLabel}${label ? `: ${label}` : ''}` : undefined} onClick={() => (open ? setOpen(false) : openPicker())}>
+      <button type="button" id={id} className={triggerClass(invalid, label)} aria-haspopup="dialog" aria-expanded={open}
+        aria-label={triggerLabel(ariaLabel, label)} onClick={() => (open ? setOpen(false) : openPicker())}>
         <Icon name="cal" size={17} />
         <span className="drp-val">{label || placeholder}</span>
-        {count != null && <span className="drp-count">{count + (sameDay ? 1 : 0)} {sameDay ? (count === 0 ? 'day' : 'days') : (count === 1 ? 'night' : 'nights')}</span>}
+        {count != null && <span className="drp-count">{spanText(count, sameDay)}</span>}
       </button>
       {open && (
-        <div className={`drp-pop ${alignRight ? 'right' : ''} m${months}`} ref={pop} role="dialog" aria-label={ariaLabel || 'Choose dates'} onKeyDown={onKey}>
-          <div className="drp-head">
-            <button type="button" className="drp-nav" aria-label="Previous month" disabled={!canPrev} onClick={() => setView(addMonths(view, -1))}><Icon name="back" /></button>
-            <span className="drp-step">{!s || draft.end ? 'Click the first day' : `First day ${fmtDay(s)}. Now click the last day.`}</span>
-            <button type="button" className="drp-nav" aria-label="Next month" onClick={() => setView(addMonths(view, 1))}><Icon name="next" /></button>
-          </div>
-          <div className="drp-months">
-            {shown.map((m) => (
-              <div key={m} className="drp-month">
-                <div className="drp-title">{MONTHS[toDate(m).getUTCMonth()]} {toDate(m).getUTCFullYear()}</div>
-                <div className="drp-grid" role="grid" onMouseLeave={() => setHover('')}>
-                  {WEEKDAYS.map((w) => <span key={w} className="drp-wd" aria-hidden="true">{w.slice(0, 2)}</span>)}
-                  {monthGrid(m).map((d, i) => (d ? (
-                    <button key={d} type="button" data-day={d} tabIndex={d === focus ? 0 : -1} disabled={disabled(d)}
-                      className={['drp-day', d === today && 'today', inRef(d) && 'ref', inRef(d) && d === reference.start && 'ref-s', inRef(d) && d === reference.end && 'ref-e',
-                        (d === s || d === e2) && 'sel', d === s && 'sel-s', d === e2 && 'sel-e', inRange(d) && 'mid'].filter(Boolean).join(' ')}
-                      aria-pressed={d === s || d === e2} aria-label={`${fmtDay(d)}${inRef(d) ? ` (${reference.label || 'requested'})` : ''}`}
-                      onMouseEnter={() => setHover(d)} onFocus={() => setFocus(d)} onClick={() => { setFocus(d); pick(d); }}>
-                      {toDate(d).getUTCDate()}
-                    </button>
-                  ) : <span key={`b${i}`} />))}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="drp-foot">
-            <div className="drp-legend">
-              {reference?.start && <span><i className="sw ref" />{reference.label || 'Requested dates'}: {fmtRangeText(reference.start, reference.end)}</span>}
-              {s && <span><i className="sw sel" />{fmtRangeText(s, e2)}{s && e2 ? ` · ${nights(s, e2) + (sameDay ? 1 : 0)} ${sameDay ? 'days' : 'nights'}` : ''}</span>}
-            </div>
-            <div className="drp-actions">
-              {presets.filter((p) => p.start && p.end).map((p) => (
-                <button key={p.label} type="button" className="btn sm" onClick={() => commit({ start: p.start, end: p.end })}>{p.label}</button>
-              ))}
-              {clearable && (start || end || s) && <button type="button" className="btn ghost sm" onClick={() => commit({ start: '', end: '' })}>Clear</button>}
-            </div>
-          </div>
-        </div>
+        <RangePopup pop={pop} months={months} alignRight={alignRight} ariaLabel={ariaLabel} onKey={onKey} canPrev={canPrev}
+          onPrev={() => setView(addMonths(view, -1))} onNext={() => setView(addMonths(view, 1))} step={step} shown={shown}
+          onLeave={() => setHover('')} focus={focus} disabled={disabled} today={today} s={s} e2={e2}
+          reference={reference} inRef={inRef} inRange={inRange} onHover={setHover} onFocus={setFocus} onPick={pick}
+          presets={presets} onPreset={(p) => commit({ start: p.start, end: p.end })} clearable={clearable} start={start} end={end}
+          onClear={() => commit({ start: '', end: '' })} sameDay={sameDay} />
       )}
     </div>
   );

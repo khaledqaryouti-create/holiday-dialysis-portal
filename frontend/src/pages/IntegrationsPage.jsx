@@ -50,11 +50,11 @@ function ConnectionList({ list, onEdit, onMessages }) {
     if (!c.enabled && !(await confirm({ title: `Switch on “${c.name}”?`, body: 'From now on the portal will send and receive messages on this connection as set up. You can switch it off at any time.', ok: 'Switch on' }))) return;
     setBusy(c.id);
     try { await api.post(`/admin/integrations/${c.id}/enabled`, { enabled: !c.enabled }); toast(c.enabled ? 'Connection switched off' : 'Connection switched on'); list.reload(); }
-    catch (e) { toast(e.fields ? `${e.message} ${Object.values(e.fields)[0]}` : e.message, 'bad'); } finally { setBusy(''); }
+    catch (error_) { toast(error_.fields ? `${error_.message} ${Object.values(error_.fields)[0]}` : error_.message, 'bad'); } finally { setBusy(''); }
   }
   async function test(c) {
     setBusy(`t${c.id}`);
-    try { const r = await api.post(`/admin/integrations/${c.id}/test`, {}); setTestResult({ ...testResult, [c.id]: r }); list.reload(); } catch (e) { toast(e.message, 'bad'); } finally { setBusy(''); }
+    try { const r = await api.post(`/admin/integrations/${c.id}/test`, {}); setTestResult({ ...testResult, [c.id]: r }); list.reload(); } catch (error_) { toast(error_.message, 'bad'); } finally { setBusy(''); }
   }
 
   return (
@@ -106,13 +106,13 @@ function JobsPanel({ jobs, every, onDone }) {
       const r = await api.post('/admin/integrations/run-jobs', {});
       toast(!r.ran ? 'Already running on another server — try again in a moment.' : r.ok ? 'Background jobs ran.' : `Background jobs failed: ${r.error}`, r.ran && !r.ok ? 'bad' : undefined);
       onDone();
-    } catch (e) { toast(e.message, 'bad'); } finally { setBusy(false); }
+    } catch (error_) { toast(error_.message, 'bad'); } finally { setBusy(false); }
   }
   let state;
   if (!every) state = <><b>Off on this server</b> (JOBS_INTERVAL_SECONDS=0) — schedule <span className="mono">npm run jobs:run</span> with Windows Task Scheduler or cron.</>;
   else state = <>Running inside the portal server every <b>{every >= 60 ? `${Math.round(every / 60)} min` : `${every} s`}</b>.</>;
   return (
-    <div className={`card pad ig-jobs ${stale || (j && j.ok === false) ? 'warn' : ''}`}>
+    <div className={`card pad ig-jobs ${stale || (j?.ok === false) ? 'warn' : ''}`}>
       <Icon name="clock" />
       <div style={{ flex: 1, minWidth: 0 }}>
         <b>Background jobs</b> <span className="muted small">— retries and scheduled patient fetches</span>
@@ -148,7 +148,7 @@ function Editor({ id, onBack, onMessages }) {
 
   const conn = withDefaults(c);
   const fields = visibleFields(conn);
-  const savedSecrets = { ...(saved?.savedSecrets || {}) };
+  const savedSecrets = saved?.savedSecrets ? { ...saved.savedSecrets } : {};
   clear.forEach((k) => delete savedSecrets[k]);
   const set = (patch) => { setC({ ...conn, ...patch }); setErr({}); };
   const setCfg = (k, v) => { setC({ ...conn, config: { ...conn.config, [k]: v } }); setErr({ ...err, [k]: undefined }); };
@@ -165,15 +165,15 @@ function Editor({ id, onBack, onMessages }) {
       const r = saved?.id ? await api.put(`/admin/integrations/${saved.id}`, body()) : await api.post('/admin/integrations', body());
       setSaved(r); setC(withDefaults(r)); setSecrets({}); setClear([]); setChanged(true);
       toast(saved?.id ? 'Connection saved' : 'Connection created');
-    } catch (x) { setErr(x.fields || {}); toast(x.message, 'bad'); } finally { setBusy(''); }
+    } catch (error_) { setErr(error_.fields || {}); toast(error_.message, 'bad'); } finally { setBusy(''); }
   }
   async function remove() {
     if (!(await confirm({ title: `Delete “${saved.name}”?`, body: 'The connection and its message log are deleted. Patients it brought in stay in the portal.', ok: 'Delete', tone: 'danger' }))) return;
-    try { await api.del(`/admin/integrations/${saved.id}`); toast('Connection deleted'); onBack(true); } catch (x) { toast(x.message, 'bad'); }
+    try { await api.del(`/admin/integrations/${saved.id}`); toast('Connection deleted'); onBack(true); } catch (error_) { toast(error_.message, 'bad'); }
   }
   async function makeKey() {
     if (saved.inboundKeyHint && !(await confirm({ title: 'Create a new inbound key?', body: 'The current key stops working straight away. The EMR team must start using the new one.', ok: 'Create new key' }))) return;
-    try { const r = await api.post(`/admin/integrations/${saved.id}/inbound-key`, {}); setNewKey(r.key); setSaved({ ...saved, inboundKeyHint: r.hint }); } catch (x) { toast(x.message, 'bad'); }
+    try { const r = await api.post(`/admin/integrations/${saved.id}/inbound-key`, {}); setNewKey(r.key); setSaved({ ...saved, inboundKeyHint: r.hint }); } catch (error_) { toast(error_.message, 'bad'); }
   }
 
   return (
@@ -204,7 +204,7 @@ function Editor({ id, onBack, onMessages }) {
             const ok = proto.flows.includes(k);
             return (
               <label key={k} className={`ig-flowopt ${!ok ? 'disabled' : ''} ${conn.flows.includes(k) ? 'on' : ''}`} title={ok ? '' : `${proto.short} can’t do this`}>
-                <input type="checkbox" disabled={!ok} checked={conn.flows.includes(k)} onChange={(e) => set({ flows: e.target.checked ? [...conn.flows, k] : conn.flows.filter((x) => x !== k) })} />
+                <input type="checkbox" aria-label={f.label} disabled={!ok} checked={conn.flows.includes(k)} onChange={(e) => set({ flows: e.target.checked ? [...conn.flows, k] : conn.flows.filter((x) => x !== k) })} />
                 <span><b>{f.label}</b><small>{ok ? f.help : `Not available with ${proto.short}.`}</small></span>
               </label>
             );
@@ -311,9 +311,9 @@ function InboundBox({ saved, conn, newKey, onKey }) {
   if (conn.protocol === 'SFTP') return null;
   return (
     <div className="ig-inbound">
-      <div className="f wide"><label>Inbound address (the EMR posts patients here)</label>
+      <div className="f wide"><div className="lbl">Inbound address (the EMR posts patients here)</div>
         <div className="row" style={{ gap: 8 }}><code className="ig-code">{url}</code><button type="button" className="btn sm" onClick={() => copy(url)}>Copy</button></div></div>
-      <div className="f wide"><label>API key</label>
+      <div className="f wide"><div className="lbl">API key</div>
         {newKey ? (
           <div className="banner warn"><Icon name="lock" /><span><b>Copy this key now — it won’t be shown again.</b><br /><code className="ig-code">{newKey}</code> <button type="button" className="btn sm" onClick={() => copy(newKey)}>Copy</button></span></div>
         ) : <div className="row" style={{ gap: 10, alignItems: 'center' }}>
@@ -335,7 +335,7 @@ function Preview({ conn }) {
   const [event, setEvent] = useState('Confirmed');
   const [out, setOut] = useState(null);
   const [error, setError] = useState(null);
-  const k = kinds.find(([x]) => x === kind) ? kind : kinds[0]?.[0];
+  const k = kinds.some(([x]) => x === kind) ? kind : kinds[0]?.[0];
   const key = JSON.stringify([conn.protocol, conn.config, conn.flows, k, event]);
   useEffect(() => {
     if (!k) return undefined;
@@ -371,15 +371,15 @@ function MessageLog({ connections, initialConnection }) {
   const [view, setView] = useState(null);
   const [busy, setBusy] = useState('');
   const load = () => api.get(`/admin/integrations/messages${qs(f)}`).then((r) => { setData(r); setError(null); }).catch(setError);
-  useEffect(() => { load(); }, [JSON.stringify(f)]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(); }, [JSON.stringify(f)]); // eslint-disable-line react-hooks/exhaustive-deps
   const pages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   async function open(m) {
-    try { setView({ m, ...(await api.get(`/admin/integrations/messages/${m.id}/payload`)) }); } catch (e) { toast(e.message, 'bad'); }
+    try { setView({ m, ...(await api.get(`/admin/integrations/messages/${m.id}/payload`)) }); } catch (error_) { toast(error_.message, 'bad'); }
   }
   async function retry(m) {
     setBusy(m.id);
-    try { const r = await api.post(`/admin/integrations/messages/${m.id}/retry`, {}); toast(r.status === 'Sent' ? 'Sent' : `Still failing: ${r.error || 'see the log'}`, r.status === 'Sent' ? undefined : 'bad'); load(); }
-    catch (e) { toast(e.message, 'bad'); } finally { setBusy(''); }
+    try { const r = await api.post(`/admin/integrations/messages/${m.id}/retry`, {}); toast(r.status === 'Sent' ? 'Sent' : `Still failing: ${r.error || 'see the log'}`, r.status === 'Sent' ? undefined : 'bad'); void load(); }
+    catch (error_) { toast(error_.message, 'bad'); } finally { setBusy(''); }
   }
   return (
     <div className="card">

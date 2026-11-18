@@ -63,7 +63,8 @@ export function describeRule(key, r) {
     if (r.min === d.default.min && r.max === d.default.max && !r.countryCodes && r.allowLocal) {
       return 'Enter a mobile number like 05X XXX XXXX, or with the country code, e.g. +44 7700 900123.'; // standard wording
     }
-    const where = r.countryCodes ? ` (country code ${list(r.countryCodes).map((c) => `+${c}`).join(' or ')})` : '';
+    const codes = list(r.countryCodes).map((c) => `+${c}`).join(' or ');
+    const where = r.countryCodes ? ` (country code ${codes})` : '';
     return `${d.label} must be ${range(r, 'digits')} in full international form, e.g. 00966 5X XXX XXXX${where}.${r.allowLocal ? ' 05X XXX XXXX is also accepted.' : ''}`;
   }
   const starts = r.starts ? `, starting with ${list(r.starts).join(' or ')}` : '';
@@ -112,21 +113,43 @@ export function storeMobile(value, r = DEFAULT_INPUT_RULES.patientMobile) {
   return f ? `+${f.slice(2)}` : null;
 }
 
+function rangeErrors(d, s) {
+  const e = {};
+  const min = Number(s.min);
+  const max = Number(s.max);
+  if (!Number.isInteger(min) || min < 1 || min > d.limit) e[`${d.key}.min`] = `Enter a whole number from 1 to ${d.limit}.`;
+  if (!Number.isInteger(max) || max < 1 || max > d.limit) e[`${d.key}.max`] = `Enter a whole number from 1 to ${d.limit}.`;
+  else if (Number.isInteger(min) && max < min) e[`${d.key}.max`] = 'Maximum can’t be less than minimum.';
+  return e;
+}
+
+function textFieldErrors(d, s) {
+  const e = {};
+  if (s.chars && !d.charsets.includes(s.chars)) e[`${d.key}.chars`] = 'Choose one of the listed options.';
+  if (s.starts && list(s.starts).some((x) => !/^[A-Za-z0-9]{1,5}$/.test(x))) e[`${d.key}.starts`] = 'Use letters or digits, separated by commas (e.g. 1, 2).';
+  return e;
+}
+
+function mobileFieldErrors(d, s) {
+  const e = {};
+  const min = Number(s.min);
+  if (s.countryCodes && list(s.countryCodes).some((x) => !/^[1-9]\d{0,3}$/.test(x))) e[`${d.key}.countryCodes`] = 'Use country codes like 966, 962 separated by commas.';
+  if (Number.isInteger(min) && min < 8) e[`${d.key}.min`] = 'A full international mobile number has at least 8 digits.';
+  return e;
+}
+
+function fieldErrors(d, s) {
+  if (!s) return {};
+  const e = { ...rangeErrors(d, s) };
+  if (d.kind === 'text') Object.assign(e, textFieldErrors(d, s));
+  if (d.kind === 'mobile') Object.assign(e, mobileFieldErrors(d, s));
+  if (s.message && String(s.message).length > 200) e[`${d.key}.message`] = 'Keep the message under 200 characters.';
+  return e;
+}
+
 /** Field errors for the settings form ({} = valid). */
 export function validateInputSettings(body = {}) {
   const e = {};
-  for (const d of INPUT_DEFS) {
-    const s = body[d.key];
-    if (!s) continue;
-    const min = Number(s.min); const max = Number(s.max);
-    if (!Number.isInteger(min) || min < 1 || min > d.limit) e[`${d.key}.min`] = `Enter a whole number from 1 to ${d.limit}.`;
-    if (!Number.isInteger(max) || max < 1 || max > d.limit) e[`${d.key}.max`] = `Enter a whole number from 1 to ${d.limit}.`;
-    else if (Number.isInteger(min) && max < min) e[`${d.key}.max`] = 'Maximum can’t be less than minimum.';
-    if (d.kind === 'text' && s.chars && !d.charsets.includes(s.chars)) e[`${d.key}.chars`] = 'Choose one of the listed options.';
-    if (d.kind === 'text' && s.starts && list(s.starts).some((x) => !/^[A-Za-z0-9]{1,5}$/.test(x))) e[`${d.key}.starts`] = 'Use letters or digits, separated by commas (e.g. 1, 2).';
-    if (d.kind === 'mobile' && s.countryCodes && list(s.countryCodes).some((x) => !/^[1-9]\d{0,3}$/.test(x))) e[`${d.key}.countryCodes`] = 'Use country codes like 966, 962 separated by commas.';
-    if (d.kind === 'mobile' && Number.isInteger(min) && min < 8) e[`${d.key}.min`] = 'A full international mobile number has at least 8 digits.';
-    if (s.message && String(s.message).length > 200) e[`${d.key}.message`] = 'Keep the message under 200 characters.';
-  }
+  for (const d of INPUT_DEFS) Object.assign(e, fieldErrors(d, body[d.key]));
   return e;
 }

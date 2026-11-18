@@ -60,8 +60,10 @@ export function visibilitySql(user, a = 'r', start = 1) {
   if (hasRole(user, ROLES.CLINIC_STAFF) && user.clinicIds?.length) {
     values.push(user.clinicIds);
     const p = `$${start + 1}`;
-    ors.push(`${a}.requesting_facility_id = ANY(${p}::uuid[])`);
-    ors.push(`(${a}.destination_type = 'Internal' AND ${a}.receiving_facility_id = ANY(${p}::uuid[]))`);
+    ors.push(
+      `${a}.requesting_facility_id = ANY(${p}::uuid[])`,
+      `(${a}.destination_type = 'Internal' AND ${a}.receiving_facility_id = ANY(${p}::uuid[]))`,
+    );
   }
   if (hasRole(user, ROLES.COORD_INTERNAL)) ors.push(`${a}.destination_type = 'Internal'`);
   if (hasRole(user, ROLES.COORD_INTERNATIONAL)) ors.push(`${a}.destination_type <> 'Internal'`);

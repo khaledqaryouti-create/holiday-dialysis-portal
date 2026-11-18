@@ -4,18 +4,25 @@ import { INPUT_DEFS, resolveInputRules, validateInputSettings, CHARSETS } from '
 import { validationFailed } from '../lib/errors.js';
 import { audit } from './audit.js';
 
-async function loadRow(db = { query }) {
+const defaultDb = { query };
+
+async function loadRow(db) {
+  const handle = db || defaultDb;
   try {
     // checked first so a missing table (before migration 013) never aborts the caller's transaction
-    const { rows: t } = await db.query(`SELECT to_regclass('public.validation_settings') IS NOT NULL AS ok`);
+    const { rows: t } = await handle.query(`SELECT to_regclass('public.validation_settings') IS NOT NULL AS ok`);
     if (!t[0]?.ok) return null;
-    const { rows } = await db.query(
+    const { rows } = await handle.query(
       `SELECT rules, updated_at, (SELECT display_name FROM portal_user WHERE id = updated_by_user_id) AS updated_by
          FROM validation_settings WHERE id = 1`);
     return rows[0] || null;
   } catch { return null; }
 }
-const rulesOf = (r) => resolveInputRules(r?.rules ? (typeof r.rules === 'string' ? JSON.parse(r.rules) : r.rules) : {});
+const rulesOf = (r) => {
+  const stored = r?.rules;
+  const parsed = stored && typeof stored === 'string' ? JSON.parse(stored) : stored;
+  return resolveInputRules(stored ? parsed : {});
+};
 
 /** Rules for the screens and the server checks (optionally inside a transaction). */
 export async function currentInputRules(db) { return rulesOf(await loadRow(db)); }

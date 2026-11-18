@@ -36,7 +36,7 @@ export function pick(obj, path) {
 const DOB = (v) => {
   const s = String(v ?? '').trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-  const m = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/); // DD/MM/YYYY
+  const m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(s); // DD/MM/YYYY
   return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : null;
 };
 
@@ -44,11 +44,13 @@ const DOB = (v) => {
 export function patientFromObject(o, cfg) {
   const nat = pick(o, cfg.mapNationalId || 'nationalId');
   const pp = pick(o, cfg.mapPassport || 'passport');
+  const otherType = pp ? 'Passport' : null;
+  const otherValue = pp ? String(pp).trim() : null;
   return {
     mrn: String(pick(o, cfg.mapMrn || 'mrn') ?? '').trim(),
     name: String(pick(o, cfg.mapName || 'name') ?? '').replace(/\s+/g, ' ').trim(),
-    identifierType: nat ? 'NationalId' : pp ? 'Passport' : null,
-    identifier: nat ? String(nat).trim() : pp ? String(pp).trim() : null,
+    identifierType: nat ? 'NationalId' : otherType,
+    identifier: nat ? String(nat).trim() : otherValue,
     dateOfBirth: DOB(pick(o, cfg.mapDob || 'dateOfBirth')),
     clinicCode: cfg.clinicSource === 'default' ? null : (pick(o, cfg.mapClinic || 'clinicCode') ?? null),
   };
@@ -62,23 +64,54 @@ export function patientsFromJson(body, cfg) {
   return (Array.isArray(list) ? list : [list]).filter((x) => x && typeof x === 'object').map((o) => patientFromObject(o, cfg));
 }
 
+function takeQuoted(src, i, f) {
+  const ch = src[i];
+  if (ch === '"' && src[i + 1] === '"') return { i: i + 1, f: `${f}"`, quoted: true };
+  if (ch === '"') return { i, f, quoted: false };
+  return { i, f: f + ch, quoted: true };
+}
+
+function takePlain(src, i, sep, row, f) {
+  const ch = src[i];
+  if (ch === '"') return { i, row, f, quoted: true };
+  if (ch === sep) { row.push(f); return { i, row, f: '', quoted: false }; }
+  if (ch !== '\n' && ch !== '\r') return { i, row, f: f + ch, quoted: false };
+  const next = ch === '\r' && src[i + 1] === '\n' ? i + 1 : i;
+  row.push(f);
+  return { i: next, row, f: '', quoted: false, emit: true };
+}
+
+function keepRow(rows, row) {
+  if (row.some((x) => x !== '')) rows.push(row);
+}
+
+function countMatches(text, source) {
+  const re = new RegExp(source, 'g');
+  let n = 0;
+  while (re.exec(text)) n += 1;
+  return n;
+}
+
 /** Minimal RFC 4180 CSV reader (quoted fields, "" escapes, , or ; separator). Returns array of objects keyed by header. */
 export function parseCsv(text) {
   const src = String(text || '').replace(/^﻿/, '');
   const firstLine = src.split(/\r?\n/)[0] || '';
-  const sep = (firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length ? ';' : ',';
-  const rows = []; let row = []; let f = ''; let quoted = false;
+  const sep = countMatches(firstLine, ';') > countMatches(firstLine, ',') ? ';' : ',';
+  const rows = [];
+  let row = [];
+  let f = '';
+  let quoted = false;
   for (let i = 0; i < src.length; i += 1) {
-    const ch = src[i];
-    if (quoted) {
-      if (ch === '"' && src[i + 1] === '"') { f += '"'; i += 1; } else if (ch === '"') quoted = false; else f += ch;
-    } else if (ch === '"') quoted = true;
-    else if (ch === sep) { row.push(f); f = ''; } else if (ch === '\n' || ch === '\r') {
-      if (ch === '\r' && src[i + 1] === '\n') i += 1;
-      row.push(f); f = ''; if (row.some((x) => x !== '')) rows.push(row); row = [];
-    } else f += ch;
+    const step = quoted ? takeQuoted(src, i, f) : takePlain(src, i, sep, row, f);
+    i = step.i;
+    f = step.f;
+    quoted = step.quoted;
+    if (!step.emit) continue;
+    keepRow(rows, row);
+    row = [];
   }
-  row.push(f); if (row.some((x) => x !== '')) rows.push(row);
+  row.push(f);
+  keepRow(rows, row);
   const [head, ...data] = rows;
   if (!head) return [];
   const keys = head.map((h) => h.trim());
@@ -92,6 +125,6 @@ export function eventCsv(s) {
   const cols = ['event', 'occurredAt', 'requestNumber', 'status', 'mrn', 'patientName', 'clinicCode', 'destinationType', 'destinationCity', 'facility', 'travelStart', 'travelEnd', 'sessions', 'confirmedStart', 'confirmedEnd'];
   const v = [s.event, s.occurredAt, s.requestNumber, s.status, s.patient.mrn, s.patient.name, s.requestingClinic.code, s.destination.type, s.destination.city,
     s.destination.facility.name, s.travel.start, s.travel.end, s.sessionsRequired, s.confirmed?.start, s.confirmed?.end];
-  const q = (x) => { const t = String(x ?? ''); return /[",\n;]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const q = (x) => { const t = String(x ?? ''); return /[",\n;]/.test(t) ? `"${t.replaceAll('"', '""')}"` : t; };
   return `${cols.join(',')}\n${v.map(q).join(',')}\n`;
 }

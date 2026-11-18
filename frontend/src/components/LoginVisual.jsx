@@ -50,10 +50,10 @@ export default function LoginVisual({ b }) {
       </div>
       <div className="lv-body">
         <h1 className="lv-tagline">
-          {lines.map((l, i) => <span key={i} className={i === lines.length - 1 ? 'em' : ''}>{l}</span>)}
+          {lines.map((l, i) => <span key={l} className={i === lines.length - 1 ? 'em' : ''}>{l}</span>)}
         </h1>
         {b.loginMessage && <p className="lv-msg">{b.loginMessage}</p>}
-        <ol className="lv-steps">{steps.map((s, i) => <li key={i}><span>{i + 1}</span>{s}</li>)}</ol>
+        <ol className="lv-steps">{steps.map((s, i) => <li key={STD_STEPS[i]}><span>{i + 1}</span>{s}</li>)}</ol>
       </div>
       <div className={`lv-art ${custom && b.loginImageUrl ? 'photo' : ''}`}>
         {custom && b.loginImageUrl ? <img src={b.loginImageUrl} alt="" /> : <TripDrawing />}

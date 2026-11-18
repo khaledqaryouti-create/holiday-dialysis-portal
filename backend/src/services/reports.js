@@ -8,7 +8,10 @@ import { pendingInfo } from '../domain/workflow.js';
 import { loadSla } from './requests.js';
 
 const isUuid = (s) => /^[0-9a-f-]{36}$/i.test(String(s));
-const asArray = (v) => (Array.isArray(v) ? v : v == null || v === '' ? [] : String(v).split(','));
+const asArray = (v) => {
+  const parts = v == null || v === '' ? [] : String(v).split(',');
+  return Array.isArray(v) ? v : parts;
+};
 
 export function defaultRange() {
   const t = todayIn(config.timeZone);
@@ -68,7 +71,9 @@ export async function reportSummary(user, f = {}) {
   const decided = rows.filter((r) => r.decision_type);
   const approved = decided.filter((r) => r.decision_type === 'Approved');
   const ttd = decided.map((r) => (new Date(r.decided_at) - new Date(r.submitted_at)) / 86_400_000).sort((a, b) => a - b);
-  const median = ttd.length ? (ttd.length % 2 ? ttd[(ttd.length - 1) / 2] : (ttd[ttd.length / 2 - 1] + ttd[ttd.length / 2]) / 2) : null;
+  const even = (ttd[ttd.length / 2 - 1] + ttd[ttd.length / 2]) / 2;
+  const mid = ttd.length % 2 ? ttd[(ttd.length - 1) / 2] : even;
+  const median = ttd.length ? mid : null;
   const overdue = count((r) => pendingInfo({ status: r.status, statusChangedAt: r.status_changed_at, travelEnd: r.travel_end_date }, sla, today)?.overdue);
 
   // average days spent in each step (from append-only status history)

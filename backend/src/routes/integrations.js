@@ -7,6 +7,20 @@ import { runJob } from '../jobs/scheduler.js';
 
 const MAX_BODY = 10 * 1024 * 1024;
 
+function bearerToken(header) {
+  const h = String(header || '');
+  if (h.length < 8 || h.slice(0, 6).toLowerCase() !== 'bearer') return '';
+  let i = 6;
+  const before = i;
+  while (i < h.length) {
+    const c = h.charCodeAt(i);
+    if (c !== 9 && c !== 10 && c !== 11 && c !== 12 && c !== 13 && c !== 32) break;
+    i += 1;
+  }
+  if (i === before || i === h.length) return '';
+  return h.slice(i);
+}
+
 /** Read the raw request body (any content type), or reuse what express.json() already parsed. */
 function rawBody(req) {
   if (req.body && typeof req.body === 'object' && Object.keys(req.body).length) return Promise.resolve(JSON.stringify(req.body));
@@ -19,7 +33,7 @@ function rawBody(req) {
   });
 }
 
-const keyFrom = (req) => req.headers['x-api-key'] || (String(req.headers.authorization || '').match(/^Bearer\s+(.+)$/i) || [])[1] || '';
+const keyFrom = (req) => req.headers['x-api-key'] || bearerToken(req.headers.authorization) || '';
 
 export const inboundRouter = Router();
 /** POST /api/integrations/inbound/:connectionId — patients from the EMR (FHIR, HL7 v2 over HTTP, CDA, JSON, CSV). */
@@ -46,7 +60,7 @@ export const jobsRouter = Router();
  *  Normally not needed: the portal server runs the jobs itself every JOBS_INTERVAL_SECONDS. */
 async function run(req, res) {
   const secret = process.env.CRON_SECRET || '';
-  const got = (String(req.headers.authorization || '').match(/^Bearer\s+(.+)$/i) || [])[1] || '';
+  const got = bearerToken(req.headers.authorization);
   const ok = secret && got.length === secret.length && crypto.timingSafeEqual(Buffer.from(got), Buffer.from(secret));
   if (!secret) { res.status(404).json({ ok: false, error: 'Not enabled (set CRON_SECRET to use this endpoint).' }); return; }
   if (!ok) { res.status(401).json({ ok: false, error: 'Wrong or missing Authorization: Bearer <CRON_SECRET>.' }); return; }

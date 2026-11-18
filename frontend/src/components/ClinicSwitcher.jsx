@@ -17,7 +17,7 @@ export default function ClinicSwitcher() {
     if (!open) return undefined;
     const close = (e) => { if (e.type === 'keydown' ? e.key === 'Escape' : !ref.current?.contains(e.target)) setOpen(false); };
     document.addEventListener('mousedown', close); document.addEventListener('keydown', close);
-    ref.current?.querySelector('.cs-item[aria-checked="true"], .cs-item')?.focus();
+    ref.current?.querySelector('.cs-pop')?.focus();
     return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', close); };
   }, [open]);
 
@@ -39,7 +39,7 @@ export default function ClinicSwitcher() {
       nav('/'); // lists, drafts and approvals now belong to the new clinic
       await refresh();
       toast(`Now working for ${c.name}`);
-    } catch (e) { toast(e.message, 'bad'); } finally { setBusy(''); }
+    } catch (error_) { toast(error_.message, 'bad'); } finally { setBusy(''); }
   }
   const onKey = (e) => {
     const items = [...ref.current.querySelectorAll('.cs-item')];
@@ -55,7 +55,7 @@ export default function ClinicSwitcher() {
         <Icon name="building" size={16} /><span>{label}</span><Icon name="chev" size={14} />
       </button>
       {open && (
-        <div className="cs-pop" role="menu" aria-label="Switch clinic" onKeyDown={onKey}>
+        <div className="cs-pop" role="menu" tabIndex={-1} aria-label="Switch clinic" onKeyDown={onKey}>
           <div className="cs-h">Switch clinic</div>
           {all.map((c) => (
             <button key={c.id} type="button" role="menuitemradio" aria-checked={current?.id === c.id} className={`cs-item ${current?.id === c.id ? 'on' : ''}`}

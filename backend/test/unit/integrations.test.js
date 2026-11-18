@@ -98,6 +98,12 @@ test('connection settings validation', () => {
   assert.deepEqual(validateConnection(base, { token: true }), {});
   assert.ok(validateConnection({ ...base, flows: ['patientsInbound'], protocol: 'EMAIL' }).flows);
   assert.ok(validateConnection({ ...base, config: { ...base.config, baseUrl: 'ftp://x' } }, { token: true }).baseUrl);
+  assert.equal(validateConnection({ ...base, config: { ...base.config, baseUrl: 'http://emr.example/fhir' }, secrets: { token: 'abc' } }).baseUrl, undefined);
+  assert.equal(
+    validateConnection({ ...base, config: { ...base.config, baseUrl: 'https://.example' }, secrets: { token: 'abc' } }).baseUrl,
+    'Enter a full address starting with https:// (or http:// for a test system).',
+  );
+  assert.ok(validateConnection({ ...base, config: { ...base.config, baseUrl: 'https://a b' }, secrets: { token: 'abc' } }).baseUrl);
   const mllp = withDefaults({ name: 'HIS', protocol: 'HL7V2_MLLP', flows: ['requestEvents'], config: { host: 'his.local' } });
   assert.equal(mllp.config.port, 2575);
   assert.deepEqual(validateConnection(mllp), {});

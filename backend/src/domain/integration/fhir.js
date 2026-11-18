@@ -16,28 +16,46 @@ const idSystems = (cfg) => ({
 });
 const q = encodeURIComponent;
 
+function officialIdentifier(p, sys) {
+  if (!p.identifier) return null;
+  const iqama = p.identifierType === 'NationalId' && p.identifier.startsWith('2');
+  const passport = p.identifierType === 'Passport';
+  const nationalSystem = iqama ? sys.Iqama : sys.NationalId;
+  return {
+    use: 'official',
+    type: { coding: [{ system: 'http://terminology.hl7.org/CodeSystem/v2-0203', code: passport ? 'PPN' : 'NI' }] },
+    system: passport ? sys.Passport : nationalSystem,
+    value: p.identifier,
+  };
+}
+
+function patientName(p) {
+  const parts = String(p.name || '').trim().split(/\s+/);
+  const many = parts.length > 1;
+  return { use: 'official', text: p.name, family: many ? parts.at(-1) : parts[0], given: many ? parts.slice(0, -1) : undefined };
+}
+
+function patientContact(p) {
+  if (!(p.relativeMobile || p.relativeName)) return null;
+  return [{
+    name: p.relativeName ? { text: p.relativeName } : undefined,
+    telecom: p.relativeMobile ? [{ system: 'phone', use: 'mobile', value: p.relativeMobile }] : undefined,
+  }];
+}
+
 /** FHIR Patient for the snapshot's patient (used inside bundles). */
 export function patientResource(s, cfg) {
   const sys = idSystems(cfg);
   const p = s.patient;
   const identifier = [{ use: 'usual', type: { coding: [{ system: 'http://terminology.hl7.org/CodeSystem/v2-0203', code: 'MR' }] }, system: sys.mrn, value: p.mrn }];
-  if (p.identifier) {
-    const iqama = p.identifierType === 'NationalId' && /^2/.test(p.identifier);
-    identifier.push({
-      use: 'official',
-      type: { coding: [{ system: 'http://terminology.hl7.org/CodeSystem/v2-0203', code: p.identifierType === 'Passport' ? 'PPN' : 'NI' }] },
-      system: p.identifierType === 'Passport' ? sys.Passport : iqama ? sys.Iqama : sys.NationalId, value: p.identifier,
-    });
-  }
-  const parts = String(p.name || '').trim().split(/\s+/);
-  const res = {
-    resourceType: 'Patient', identifier,
-    name: [{ use: 'official', text: p.name, family: parts.length > 1 ? parts.slice(-1)[0] : parts[0], given: parts.length > 1 ? parts.slice(0, -1) : undefined }],
-  };
+  const official = officialIdentifier(p, sys);
+  if (official) identifier.push(official);
+  const res = { resourceType: 'Patient', identifier, name: [patientName(p)] };
   if (p.dateOfBirth) res.birthDate = p.dateOfBirth;
   const tel = [p.mobile && { system: 'phone', use: 'mobile', value: p.mobile }].filter(Boolean);
   if (tel.length) res.telecom = tel;
-  if (p.relativeMobile || p.relativeName) res.contact = [{ name: p.relativeName ? { text: p.relativeName } : undefined, telecom: p.relativeMobile ? [{ system: 'phone', use: 'mobile', value: p.relativeMobile }] : undefined }];
+  const contact = patientContact(p);
+  if (contact) res.contact = contact;
   return res;
 }
 
@@ -50,6 +68,7 @@ export function requestBundle(s, cfg) {
   const start = s.confirmed?.start || s.travel.start;
   const end = s.confirmed?.end || s.travel.end;
   const note = [`Event: ${s.eventLabel || s.event}`, s.sessionPlan?.length ? `Treatment days: ${planText(s.sessionPlan)}` : null, s.note].filter(Boolean).map((text) => ({ text }));
+  const clinic = s.requestingClinic.name ? ` (${s.requestingClinic.name})` : '';
   const entries = [
     { fullUrl: patientUrl, resource: patientResource(s, cfg), request: { method: 'POST', url: 'Patient', ifNoneExist: `identifier=${q(sys.mrn)}|${q(s.patient.mrn)}` } },
     {
@@ -64,7 +83,7 @@ export function requestBundle(s, cfg) {
         occurrencePeriod: { start, end },
         quantityQuantity: s.sessionsRequired ? { value: Number(s.sessionsRequired), unit: 'sessions' } : undefined,
         authoredOn: s.submittedAt || s.occurredAt,
-        requester: { display: `${s.requestedBy || ''}${s.requestingClinic.name ? ` (${s.requestingClinic.name})` : ''}`.trim() },
+        requester: { display: `${s.requestedBy || ''}${clinic}`.trim() },
         performer: [{ display: s.destination.facility.name || '' , identifier: s.destination.facility.code ? { value: s.destination.facility.code } : undefined }],
         locationCode: [{ text: [s.destination.city, s.destination.countryName].filter(Boolean).join(', ') }],
         note,
@@ -128,9 +147,10 @@ export function patientFromResource(res, cfg) {
   const n = (res.name || []).find((x) => x.use === 'official') || (res.name || [])[0] || {};
   const name = (n.text || [...(n.given || []), n.family].filter(Boolean).join(' ')).replace(/\s+/g, ' ').trim();
   const org = res.managingOrganization;
+  const otherType = pp ? 'Passport' : null;
   return {
     mrn: String(mrn?.value || '').trim(), name,
-    identifierType: nat ? 'NationalId' : pp ? 'Passport' : null, identifier: (nat || pp)?.value || null,
+    identifierType: nat ? 'NationalId' : otherType, identifier: (nat || pp)?.value || null,
     dateOfBirth: res.birthDate && /^\d{4}-\d{2}-\d{2}$/.test(res.birthDate) ? res.birthDate : null,
     clinicCode: cfg.clinicSource === 'default' ? null : (org?.identifier?.value || (org?.reference || '').split('/').pop() || null),
   };
@@ -139,6 +159,7 @@ export function patientFromResource(res, cfg) {
 /** Patients from a Patient, a Bundle (searchset / transaction / collection) or an array. */
 export function patientsFromFhir(body, cfg) {
   const json = typeof body === 'string' ? JSON.parse(body) : body;
-  const items = Array.isArray(json) ? json : json?.resourceType === 'Bundle' ? (json.entry || []).map((e) => e.resource) : [json];
+  const bundled = json?.resourceType === 'Bundle' ? (json.entry || []).map((e) => e.resource) : [json];
+  const items = Array.isArray(json) ? json : bundled;
   return items.map((r) => patientFromResource(r, cfg)).filter(Boolean);
 }

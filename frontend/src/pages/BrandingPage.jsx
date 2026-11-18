@@ -5,7 +5,7 @@ import { api } from '../api.js';
 import { useBranding } from '../branding.jsx';
 import { Icon } from '../components/Icon.jsx';
 import { useUi, useLoad, Loading, ErrorBox, FieldError, fmtSize } from '../components/ui.jsx';
-import { BrandBlock, ContactList } from '../components/Brand.jsx';
+import { BrandBlock } from '../components/Brand.jsx';
 import LoginVisual from '../components/LoginVisual.jsx';
 import { DEFAULT_BRANDING, STANDARD_SIGNIN_TEXT as STD, HEADER_TEXT, PHOTO_TYPES, PHOTO_MAX_BYTES, HEX_RE, contrastRatio, darken, validateBranding, hasContact, LOGO_MAX_BYTES, LOGO_TYPES, BRANDING_LIMITS } from '@domain/branding.js';
 import { fmtTS } from '../lib/format.js';
@@ -54,7 +54,7 @@ export default function BrandingPage() {
       data.setData(r); setF(formFrom(r)); setErr({});
       toast(r.enabled ? 'Branding saved and showing' : 'Branding saved (not showing yet)');
       live.refresh();
-    } catch (x) { setErr(x.fields || {}); toast(x.message, 'bad'); } finally { setBusy(''); }
+    } catch (error_) { setErr(error_.fields || {}); toast(error_.message, 'bad'); } finally { setBusy(''); }
   }
 
   async function upload(file) {
@@ -63,12 +63,12 @@ export default function BrandingPage() {
     const form = new FormData(); form.append('logo', file);
     setBusy('logo');
     try { const r = await api.upload('/admin/branding/logo', form); data.setData(r); setErr({ ...err, logo: undefined }); toast('Logo uploaded'); live.refresh(); }
-    catch (x) { setErr({ ...err, logo: x.fields?.logo || x.message }); } finally { setBusy(''); if (fileRef.current) fileRef.current.value = ''; }
+    catch (error_) { setErr({ ...err, logo: error_.fields?.logo || error_.message }); } finally { setBusy(''); if (fileRef.current) fileRef.current.value = ''; }
   }
 
   async function removeLogo() {
     if (!(await confirm({ title: 'Remove the logo?', body: 'The standard portal mark is shown instead.', ok: 'Remove', tone: 'danger' }))) return;
-    try { const r = await api.del('/admin/branding/logo'); data.setData(r); toast('Logo removed'); live.refresh(); } catch (x) { toast(x.message, 'bad'); }
+    try { const r = await api.del('/admin/branding/logo'); data.setData(r); toast('Logo removed'); live.refresh(); } catch (error_) { toast(error_.message, 'bad'); }
   }
 
   async function uploadPhoto(file) {
@@ -77,11 +77,11 @@ export default function BrandingPage() {
     const form = new FormData(); form.append('photo', file);
     setBusy('photo');
     try { const r = await api.upload('/admin/branding/login-image', form); data.setData(r); setErr({ ...err, loginImage: undefined }); toast('Picture uploaded'); live.refresh(); }
-    catch (x) { setErr({ ...err, loginImage: x.fields?.loginImage || x.message }); } finally { setBusy(''); if (photoRef.current) photoRef.current.value = ''; }
+    catch (error_) { setErr({ ...err, loginImage: error_.fields?.loginImage || error_.message }); } finally { setBusy(''); if (photoRef.current) photoRef.current.value = ''; }
   }
   async function removePhoto() {
     if (!(await confirm({ title: 'Remove the sign-in picture?', body: 'The sign-in page goes back to plain green.', ok: 'Remove', tone: 'danger' }))) return;
-    try { const r = await api.del('/admin/branding/login-image'); data.setData(r); toast('Picture removed'); live.refresh(); } catch (x) { toast(x.message, 'bad'); }
+    try { const r = await api.del('/admin/branding/login-image'); data.setData(r); toast('Picture removed'); live.refresh(); } catch (error_) { toast(error_.message, 'bad'); }
   }
 
   /** Finds the main colour of the logo (most common strong colour), darkening it if white text would be hard to read. */
@@ -198,7 +198,7 @@ function LogoBlock({ drag, setDrag, upload, logoUrl, busy, d, fileRef, removeLog
       <h3 className="row" style={{ gap: 8 }}><Icon name="image" />Logo</h3>
       <div className={`logo-drop ${drag ? 'drag' : ''}`}
         onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
-        onDrop={(e) => { e.preventDefault(); setDrag(false); upload(e.dataTransfer.files?.[0]); }}>
+        onDrop={(e) => { e.preventDefault(); setDrag(false); void upload(e.dataTransfer.files?.[0]); }}>
         <div className="logo-box">{logoUrl ? <img src={logoUrl} alt="Current logo" /> : <span className="muted small">No logo</span>}</div>
         <div className="stack" style={{ gap: 8, flex: 1, minWidth: 220 }}>
           <div className="row" style={{ gap: 8 }}>
@@ -206,7 +206,7 @@ function LogoBlock({ drag, setDrag, upload, logoUrl, busy, d, fileRef, removeLog
               {busy === 'logo' ? <span className="spinner" /> : <Icon name="upload" />}{d.hasLogo ? 'Replace logo' : 'Upload logo'}</button>
             {d.hasLogo && <button type="button" className="btn danger" onClick={removeLogo}>Remove</button>}
           </div>
-          <input ref={fileRef} type="file" hidden accept={Object.keys(LOGO_TYPES).join(',')} onChange={(e) => upload(e.target.files?.[0])} aria-label="Logo file" />
+          <input ref={fileRef} type="file" hidden accept={Object.keys(LOGO_TYPES).join(',')} onChange={(e) => { void upload(e.target.files?.[0]); }} aria-label="Logo file" />
           <div className="help">{Object.values(LOGO_TYPES).join(', ')} up to 1 MB. A wide logo about 600 × 160 px works best. Drag a file here or use the button.
             {d.hasLogo && <> Current: {LOGO_TYPES[d.logoMime]}, {fmtSize(d.logoSize)}.</>}</div>
           <FieldError msg={err.logo} />
@@ -230,14 +230,14 @@ function ColourBlock({ photoUrl, busy, d, photoRef, removePhoto, uploadPhoto, er
     <section className="card pad stack" style={{ gap: 14, marginBottom: 16 }}>
       <h3 className="row" style={{ gap: 8 }}><Icon name="palette" />Sign-in picture and brand colour</h3>
       <div className="logo-drop">
-        <div className="logo-box photo-box">{photoUrl ? <img src={photoUrl} alt="Current sign-in picture" /> : <span className="muted small">No picture</span>}</div>
+        <div className="logo-box photo-box">{photoUrl ? <img src={photoUrl} alt="Current sign-in background" /> : <span className="muted small">No picture</span>}</div>
         <div className="stack" style={{ gap: 8, flex: 1, minWidth: 220 }}>
           <div className="row" style={{ gap: 8 }}>
             <button type="button" className="btn" onClick={() => photoRef.current?.click()} disabled={busy === 'photo'}>
               {busy === 'photo' ? <span className="spinner" /> : <Icon name="upload" />}{d.hasLoginImage ? 'Replace picture' : 'Upload picture'}</button>
             {d.hasLoginImage && <button type="button" className="btn danger" onClick={removePhoto}>Remove</button>}
           </div>
-          <input ref={photoRef} type="file" hidden accept={Object.keys(PHOTO_TYPES).join(',')} onChange={(e) => uploadPhoto(e.target.files?.[0])} aria-label="Sign-in picture file" />
+          <input ref={photoRef} type="file" hidden accept={Object.keys(PHOTO_TYPES).join(',')} onChange={(e) => { void uploadPhoto(e.target.files?.[0]); }} aria-label="Sign-in picture file" />
           <div className="help">Shown behind the left side of the sign-in page, under a green tint so the text stays readable. A landscape {Object.values(PHOTO_TYPES).join(', ')} photo about 1600 × 1200 px, up to 3 MB. Use only photos your company has the rights to.
             {d.hasLoginImage && <> Current: {fmtSize(d.loginImageSize)}.</>}</div>
           <FieldError msg={err.loginImage} />

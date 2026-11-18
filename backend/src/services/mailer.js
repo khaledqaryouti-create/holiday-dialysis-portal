@@ -58,7 +58,9 @@ function envTransportGet() {
     envTransport = {
       async sendMail(msg) {
         const att = (msg.attachments || []).map((a) => `${a.filename} (${a.content?.length ?? 0} bytes)`).join(', ');
-        console.log(`\n[mail:log] To: ${msg.to}${msg.cc ? ` | CC: ${msg.cc}` : ''}\n[mail:log] Subject: ${msg.subject}${att ? `\n[mail:log] Attachments: ${att}` : ''}\n${msg.text}\n`);
+        const cc = msg.cc ? ` | CC: ${msg.cc}` : '';
+        const attachments = att ? `\n[mail:log] Attachments: ${att}` : '';
+        console.log(`\n[mail:log] To: ${msg.to}${cc}\n[mail:log] Subject: ${msg.subject}${attachments}\n${msg.text}\n`);
         return { messageId: `logged-${Date.now()}` };
       },
     };

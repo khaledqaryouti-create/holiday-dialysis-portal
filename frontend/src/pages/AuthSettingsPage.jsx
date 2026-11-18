@@ -52,7 +52,7 @@ export default function AuthSettingsPage() {
     if (!f.localEnabled && d.localEnabled && !(await confirm({ title: 'Switch off local passwords?', body: 'People with a local portal password (including IT break-glass accounts) will no longer be able to sign in with it. Make sure directory or Microsoft sign-in works for you first.', ok: 'Switch off', tone: 'danger' }))) return;
     setBusy('save');
     try { const r = await api.put('/admin/auth-settings', payload()); data.setData(r); setF(formFrom(r)); toast('Sign-in settings saved'); }
-    catch (x) { setErr(x.fields || {}); toast(x.message, 'bad'); } finally { setBusy(''); }
+    catch (error_) { setErr(error_.fields || {}); toast(error_.message, 'bad'); } finally { setBusy(''); }
   }
   async function test(kind, extra = {}) {
     setBusy(kind); setResults((r) => ({ ...r, [kind]: null }));
@@ -60,7 +60,7 @@ export default function AuthSettingsPage() {
       const path = { ldap: 'test-ldap', ldapUser: 'test-ldap-user', ms: 'test-microsoft' }[kind];
       const res = await api.post(`/admin/auth-settings/${path}`, { ...payload(), ...extra });
       setResults((r) => ({ ...r, [kind]: res }));
-    } catch (x) { setErr({ ...err, ...(x.fields || {}) }); setResults((r) => ({ ...r, [kind]: { ok: false, message: x.message } })); } finally { setBusy(''); }
+    } catch (error_) { setErr({ ...err, ...(error_.fields || {}) }); setResults((r) => ({ ...r, [kind]: { ok: false, message: error_.message } })); } finally { setBusy(''); }
   }
   const changeSecurity = (e) => {
     const sec = e.target.value;
@@ -253,7 +253,7 @@ function GroupMappings() {
   const [err, setErr] = useState({});
   const add = async () => {
     try { await api.post('/admin/auth-settings/mappings', { ...m, facilityId: m.facilityId || null }); setM({ ...blank, source: m.source }); setErr({}); toast('Group mapping added'); onChanged(); }
-    catch (e) { setErr(e.fields || { general: e.message }); }
+    catch (error_) { setErr(error_.fields || { general: error_.message }); }
   };
   return (
     <div className="card">
@@ -265,7 +265,7 @@ function GroupMappings() {
           {mappings.map((x) => (
             <tr key={x.id}><td>{x.source === 'ldap' ? 'Directory' : 'Microsoft'}</td><td><span className="mono small">{x.groupIdentifier}</span>{x.groupLabel && <span className="sub">{x.groupLabel}</span>}</td>
               <td>{ROLE_LABELS[x.roleCode]}</td><td>{x.facilityName || <span className="muted">—</span>}</td>
-              <td><button className="textlink danger" onClick={async () => { try { await api.del(`/admin/auth-settings/mappings/${x.id}`); toast('Mapping removed'); onChanged(); } catch (e) { toast(e.message, 'bad'); } }}>Remove</button></td></tr>
+              <td><button className="textlink danger" onClick={async () => { try { await api.del(`/admin/auth-settings/mappings/${x.id}`); toast('Mapping removed'); onChanged(); } catch (error_) { toast(error_.message, 'bad'); } }}>Remove</button></td></tr>
           ))}
           {!mappings.length && <tr><td colSpan={5} className="empty">No group mappings yet.</td></tr>}
           <tr>

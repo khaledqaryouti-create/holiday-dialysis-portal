@@ -60,16 +60,27 @@ export function normalizeWebsite(v) {
   } catch { return null; }
 }
 
-/** Field errors keyed by form input name ({} = valid). */
-export function validateBranding(b) {
+function lengthErrors(b) {
   const e = {};
   for (const [k, max] of Object.entries(BRANDING_LIMITS)) {
     if (String(b[k] ?? '').length > max) e[k] = `Keep this under ${max} characters.`;
   }
-  if (b.accentColor) {
-    if (!HEX_RE.test(b.accentColor)) e.accentColor = 'Enter a colour like #E86824.';
-    else if (contrastRatio(b.accentColor, '#ffffff') < 3) e.accentColor = `White text on this colour is hard to read (contrast ${contrastRatio(b.accentColor, '#ffffff').toFixed(1)}:1, needs 3:1). Choose a slightly darker shade.`;
-  }
+  return e;
+}
+
+function accentError(color) {
+  if (!color) return null;
+  if (!HEX_RE.test(color)) return 'Enter a colour like #E86824.';
+  const ratio = contrastRatio(color, '#ffffff');
+  if (ratio < 3) return `White text on this colour is hard to read (contrast ${ratio.toFixed(1)}:1, needs 3:1). Choose a slightly darker shade.`;
+  return null;
+}
+
+/** Field errors keyed by form input name ({} = valid). */
+export function validateBranding(b) {
+  const e = lengthErrors(b);
+  const accent = accentError(b.accentColor);
+  if (accent) e.accentColor = accent;
   if (b.headerText && !HEADER_TEXT[b.headerText]) e.headerText = 'Choose what to show next to the logo.';
   if (!String(b.portalTitle ?? '').trim()) e.portalTitle = 'Enter the portal title shown in the header.';
   if (b.enabled && !String(b.companyName ?? '').trim()) e.companyName = 'Enter the company name before switching branding on.';
@@ -86,10 +97,10 @@ export function validateBranding(b) {
 export function detectLogoType(buf) {
   if (!buf || !buf.length) throw new Error('Choose an image file.');
   if (buf.length > LOGO_MAX_BYTES) throw new Error('The logo is larger than 1 MB. Save it smaller (about 600 px wide is plenty).');
-  const b = (i) => buf[i];
+  const b = (i) => buf[i] ?? 0;
   if (b(0) === 0x89 && b(1) === 0x50 && b(2) === 0x4e && b(3) === 0x47) return 'image/png';
   if (b(0) === 0xff && b(1) === 0xd8 && b(2) === 0xff) return 'image/jpeg';
-  if (String.fromCharCode(b(0), b(1), b(2), b(3)) === 'RIFF' && String.fromCharCode(b(8), b(9), b(10), b(11)) === 'WEBP') return 'image/webp';
+  if (String.fromCodePoint(b(0), b(1), b(2), b(3)) === 'RIFF' && String.fromCodePoint(b(8), b(9), b(10), b(11)) === 'WEBP') return 'image/webp';
   const text = new TextDecoder('utf-8', { fatal: false }).decode(buf.subarray(0, Math.min(buf.length, LOGO_MAX_BYTES)));
   if (/<svg[\s>]/i.test(text)) {
     // SVG can carry script. Refuse anything active; the server also serves logos with a sandboxing CSP.
@@ -114,7 +125,7 @@ export const telHref = (phone) => `tel:${String(phone || '').replace(/[^\d+]/g, 
 // ---------------------------------------------------------------- colour helpers
 export const HEX_RE = /^#[0-9a-f]{6}$/i;
 const lin = (c) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
-const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const rgbOf = (hex) => [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16));
 const luminance = (hex) => { const [r, g, b] = rgbOf(hex).map(lin); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
 /** WCAG contrast ratio between two #rrggbb colours (1–21). */
 export function contrastRatio(a, b) {
@@ -130,9 +141,9 @@ export function darken(hex, amount = 0.12) {
 export function detectPhotoType(buf) {
   if (!buf || !buf.length) throw new Error('Choose an image file.');
   if (buf.length > PHOTO_MAX_BYTES) throw new Error('The picture is larger than 3 MB. Save it as a JPEG about 1600 px wide.');
-  const b = (i) => buf[i];
+  const b = (i) => buf[i] ?? 0;
   if (b(0) === 0x89 && b(1) === 0x50 && b(2) === 0x4e && b(3) === 0x47) return 'image/png';
   if (b(0) === 0xff && b(1) === 0xd8 && b(2) === 0xff) return 'image/jpeg';
-  if (String.fromCharCode(b(0), b(1), b(2), b(3)) === 'RIFF' && String.fromCharCode(b(8), b(9), b(10), b(11)) === 'WEBP') return 'image/webp';
+  if (String.fromCodePoint(b(0), b(1), b(2), b(3)) === 'RIFF' && String.fromCodePoint(b(8), b(9), b(10), b(11)) === 'WEBP') return 'image/webp';
   throw new Error('Use a JPEG, PNG or WebP photo.');
 }

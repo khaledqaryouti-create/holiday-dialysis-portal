@@ -30,7 +30,10 @@ async function oauthToken(conn, secrets) {
 async function authHeaders(conn, secrets) {
   const c = conn.config;
   switch (c.authType) {
-    case 'basic': return { Authorization: `Basic ${Buffer.from(`${c.username || ''}:${secrets.password || ''}`).toString('base64')}` };
+    case 'basic': {
+      const credentials = `${c.username || ''}:${secrets.password || ''}`;
+      return { Authorization: `Basic ${Buffer.from(credentials).toString('base64')}` };
+    }
     case 'bearer': return { Authorization: `Bearer ${secrets.token || ''}` };
     case 'apiKey': return { [c.apiKeyHeader || 'X-API-Key']: secrets.apiKey || '' };
     case 'oauth2': return { Authorization: `Bearer ${await oauthToken(conn, secrets)}` };
@@ -38,7 +41,29 @@ async function authHeaders(conn, secrets) {
   }
 }
 
-export const joinUrl = (base, p) => (!p ? base : /^https?:\/\//i.test(p) ? p : `${String(base).replace(/\/+$/, '')}/${String(p).replace(/^\/+/, '')}`);
+function trimEndCode(s, code) {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === code) end -= 1;
+  return end === s.length ? s : s.slice(0, end);
+}
+function trimStartCode(s, code) {
+  let i = 0;
+  while (i < s.length && s.charCodeAt(i) === code) i += 1;
+  return i === 0 ? s : s.slice(i);
+}
+function isAbsoluteHttp(p) {
+  const head = String(p).slice(0, 8).toLowerCase();
+  return head.startsWith('https://') || head.startsWith('http://');
+}
+function stripSha256(s) {
+  return s.slice(0, 7).toLowerCase() === 'sha256:' ? s.slice(7) : s;
+}
+
+export function joinUrl(base, p) {
+  const joined = `${trimEndCode(String(base), 47)}/${trimStartCode(String(p), 47)}`;
+  const path = isAbsoluteHttp(p) ? p : joined;
+  return !p ? base : path;
+}
 
 /** HTTP request with the connection's authentication. Throws TransportError on network errors and non-2xx answers. */
 export async function http(conn, secrets, { method = 'POST', url, body, contentType, accept, timeoutMs = TIMEOUT_MS, okStatuses }) {
@@ -102,7 +127,9 @@ export function mllpUnframe(buffer) {
   for (;;) {
     const s = rest.indexOf(VT); const e = rest.indexOf(FS, s + 1);
     if (s < 0 || e < 0) break;
-    out.push(rest.slice(s + 1, e)); rest = rest.slice(e + 1).replace(/^\r/, '');
+    out.push(rest.slice(s + 1, e));
+    rest = rest.slice(e + 1);
+    if (rest.charCodeAt(0) === 13) rest = rest.slice(1);
   }
   return { messages: out, rest };
 }
@@ -123,11 +150,11 @@ export const setSftpFactory = (f) => { sftpFactory = f; };
 export async function withSftp(conn, secrets, fn) {
   const c = conn.config;
   const client = await sftpFactory();
-  const expected = String(c.hostKeyFingerprint || '').trim().replace(/^SHA256:/i, '');
+  const expected = stripSha256(String(c.hostKeyFingerprint || '').trim());
   const options = {
     host: c.host, port: Number(c.sftpPort || 22), username: c.username, readyTimeout: TIMEOUT_MS,
     ...(c.sftpAuth === 'key' ? { privateKey: secrets.privateKey, passphrase: secrets.passphrase || undefined } : { password: secrets.password }),
-    ...(expected ? { hostHash: 'sha256', hostVerifier: (hex) => Buffer.from(hex, 'hex').toString('base64').replace(/=+$/, '') === expected.replace(/=+$/, '') } : {}),
+    ...(expected ? { hostHash: 'sha256', hostVerifier: (hex) => trimEndCode(Buffer.from(hex, 'hex').toString('base64'), 61) === trimEndCode(expected, 61) } : {}),
   };
   try {
     await client.connect(options);
@@ -137,7 +164,7 @@ export async function withSftp(conn, secrets, fn) {
   try { return await fn(client); } finally { await client.end().catch(() => {}); }
 }
 
-export const remotePath = (dir, name) => `${String(dir || '/').replace(/\/+$/, '')}/${name}`;
+export const remotePath = (dir, name) => `${trimEndCode(String(dir || '/'), 47)}/${name}`;
 
 // ------------------------------------------------------------------ Email
 export async function email(conn, { subject, text, attachments }) {

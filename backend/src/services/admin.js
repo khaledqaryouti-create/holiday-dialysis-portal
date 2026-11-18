@@ -15,6 +15,22 @@ import { config } from '../config.js';
 const isUuid = (s) => /^[0-9a-f-]{36}$/i.test(String(s));
 
 // ------------------------------------------------------------------ users
+function identityErrors(e, b, { requireAll, name, email }) {
+  if ((requireAll || b.name !== undefined) && !name) e.name = 'Enter the user’s name.';
+  if ((requireAll || b.email !== undefined) && !isEmail(email)) e.email = 'Enter a valid work email.';
+}
+
+function assignmentErrors(e, roles, clinicIds) {
+  if (!roles.length) e.roles = 'Choose at least one role.';
+  if (roles.includes(ROLES.CLINIC_STAFF) && !clinicIds.length) e.clinicIds = 'Clinic Staff need a clinic.';
+}
+
+function applyPassword(e, password, { checkPassword, requirePassword }) {
+  if (!checkPassword) return;
+  const passwordErr = validatePassword(password, { required: requirePassword });
+  if (passwordErr) e.password = passwordErr;
+}
+
 function cleanUserInput(b, { requireAll, requirePassword = requireAll, checkPassword = true }) {
   const e = {};
   const name = String(b.name ?? '').trim();
@@ -22,14 +38,9 @@ function cleanUserInput(b, { requireAll, requirePassword = requireAll, checkPass
   const roles = (Array.isArray(b.roles) ? b.roles : []).filter((r) => Object.values(ROLES).includes(r));
   const clinicIds = (Array.isArray(b.clinicIds) ? b.clinicIds : []).filter(isUuid);
   const password = b.password == null ? '' : String(b.password);
-  if (requireAll || b.name !== undefined) if (!name) e.name = 'Enter the user’s name.';
-  if (requireAll || b.email !== undefined) if (!isEmail(email)) e.email = 'Enter a valid work email.';
-  if (!roles.length) e.roles = 'Choose at least one role.';
-  if (roles.includes(ROLES.CLINIC_STAFF) && !clinicIds.length) e.clinicIds = 'Clinic Staff need a clinic.';
-  if (checkPassword) {
-    const passwordErr = validatePassword(password, { required: requirePassword });
-    if (passwordErr) e.password = passwordErr;
-  }
+  identityErrors(e, b, { requireAll, name, email });
+  assignmentErrors(e, roles, clinicIds);
+  applyPassword(e, password, { checkPassword, requirePassword });
   if (Object.keys(e).length) throw validationFailed(e);
   return { name, email, roles, clinicIds: roles.includes(ROLES.CLINIC_STAFF) ? clinicIds : [], password: password || null };
 }

@@ -4,21 +4,38 @@
 import { planText } from '../sessionPlan.js';
 
 const CR = '\r';
+const swap = (s, from, to) => s.split(from).join(to);
+function trimEndCode(s, code) {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === code) end -= 1;
+  return end === s.length ? s : s.slice(0, end);
+}
+function newlinesToBr(s) {
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 13) {
+      if (s.charCodeAt(i + 1) === 10) i += 1;
+      out += '\\.br\\';
+    } else if (c === 10) out += '\\.br\\';
+    else out += s[i];
+  }
+  return out;
+}
 /** Escape HL7 delimiters inside a value (spec 2.7). */
-export const esc = (v) => String(v ?? '').replace(/\\/g, '\\E\\').replace(/\|/g, '\\F\\').replace(/\^/g, '\\S\\').replace(/~/g, '\\R\\').replace(/&/g, '\\T\\')
-  .replace(/\r\n|\r|\n/g, '\\.br\\');
-export const unesc = (v) => String(v ?? '').replace(/\\\.br\\/g, '\n').replace(/\\F\\/g, '|').replace(/\\S\\/g, '^').replace(/\\R\\/g, '~').replace(/\\T\\/g, '&').replace(/\\E\\/g, '\\');
-const comp = (...parts) => parts.map(esc).join('^').replace(/\^+$/, '');
-const seg = (...fields) => fields.map((f) => (f == null ? '' : f)).join('|').replace(/\|+$/, '');
+export const esc = (v) => newlinesToBr(swap(swap(swap(swap(swap(String(v ?? ''), '\\', '\\E\\'), '|', '\\F\\'), '^', '\\S\\'), '~', '\\R\\'), '&', '\\T\\'));
+export const unesc = (v) => swap(swap(swap(swap(swap(swap(String(v ?? ''), '\\.br\\', '\n'), '\\F\\', '|'), '\\S\\', '^'), '\\R\\', '~'), '\\T\\', '&'), '\\E\\', '\\');
+const comp = (...parts) => trimEndCode(parts.map(esc).join('^'), 94);
+const seg = (...fields) => trimEndCode(fields.map((f) => (f == null ? '' : f)).join('|'), 124);
 
 /** YYYYMMDDHHMMSS±ZZZZ for a Date (UTC offset +0000), or YYYYMMDD for an ISO date. */
 export function hl7Ts(d = new Date()) {
-  if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d.replace(/-/g, '');
+  if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d.replaceAll('-', '');
   const x = new Date(d);
   const p = (n) => String(n).padStart(2, '0');
   return `${x.getUTCFullYear()}${p(x.getUTCMonth() + 1)}${p(x.getUTCDate())}${p(x.getUTCHours())}${p(x.getUTCMinutes())}${p(x.getUTCSeconds())}+0000`;
 }
-const isoFromHl7 = (v) => { const m = String(v || '').match(/^(\d{4})(\d{2})(\d{2})/); return m ? `${m[1]}-${m[2]}-${m[3]}` : null; };
+const isoFromHl7 = (v) => { const m = /^(\d{4})(\d{2})(\d{2})/.exec(String(v || '')); return m ? `${m[1]}-${m[2]}-${m[3]}` : null; };
 
 export function msh(cfg, type, controlId, at = new Date()) {
   return seg('MSH', '^~\\&', esc(cfg.sendingApplication || 'HDP'), esc(cfg.sendingFacility || ''), esc(cfg.receivingApplication || ''), esc(cfg.receivingFacility || ''),
@@ -36,7 +53,7 @@ export function pid(s, cfg) {
     ids.push(comp(p.identifier, '', '', p.identifierType === 'Passport' ? '' : 'SAU', code));
   }
   const parts = String(p.name || '').trim().split(/\s+/);
-  const family = parts.length > 1 ? parts.slice(-1)[0] : parts[0] || '';
+  const family = parts.length > 1 ? parts.at(-1) : parts[0] || '';
   const given = parts.length > 1 ? parts.slice(0, -1).join(' ') : '';
   const phones = [p.mobile && comp('', 'PRN', 'CP', '', '', '', '', '', '', '', '', p.mobile)].filter(Boolean).join('~');
   return seg('PID', '1', '', ids.join('~'), '', comp(family, given), '', p.dateOfBirth ? hl7Ts(p.dateOfBirth) : '', '', '', '', '', '', phones);
@@ -85,20 +102,43 @@ export function buildMdm(s, doc, cfg, controlId, at = new Date()) {
 
 /** QBP^Q22 "find candidates" by MRN. */
 export function buildQbp(mrn, cfg, controlId, at = new Date()) {
+  const authority = cfg.mrnAssigningAuthority ? `~@PID.3.4^${esc(cfg.mrnAssigningAuthority)}` : '';
   return [
     msh(cfg, 'QBP^Q22^QBP_Q21', controlId, at),
-    seg('QPD', 'Q22^Find Candidates^HL7nnn', esc(controlId), `@PID.3.1^${esc(mrn)}~@PID.3.5^MR${cfg.mrnAssigningAuthority ? `~@PID.3.4^${esc(cfg.mrnAssigningAuthority)}` : ''}`),
+    seg('QPD', 'Q22^Find Candidates^HL7nnn', esc(controlId), `@PID.3.1^${esc(mrn)}~@PID.3.5^MR${authority}`),
     seg('RCP', 'I', '10^RD'),
   ].join(CR) + CR;
+}
+
+function stripMllp(text) {
+  let raw = String(text || '');
+  if (raw.charCodeAt(0) === 0x0b) raw = raw.slice(1);
+  const n = raw.length;
+  if (n && raw.charCodeAt(n - 1) === 0x1c) raw = raw.slice(0, -1);
+  else if (n >= 2 && raw.charCodeAt(n - 2) === 0x1c && raw.charCodeAt(n - 1) === 13) raw = raw.slice(0, -2);
+  return raw.trim();
+}
+function splitLines(s) {
+  const out = [];
+  let start = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c !== 13 && c !== 10) continue;
+    out.push(s.slice(start, i));
+    if (c === 13 && s.charCodeAt(i + 1) === 10) i += 1;
+    start = i + 1;
+  }
+  out.push(s.slice(start));
+  return out;
 }
 
 // ------------------------------------------------------------------ reading
 /** Split an ER7 message into segments → arrays of fields (field 0 = segment name; MSH fields are numbered like the spec). */
 export function parse(text) {
-  const raw = String(text || '').replace(/^\x0b|\x1c\r?$/g, '').trim();
+  const raw = stripMllp(text);
   if (!raw.startsWith('MSH')) throw new Error('Not an HL7 v2 message (it must start with MSH).');
   const fs = raw[3];
-  const segs = raw.split(/\r\n|\r|\n/).filter(Boolean).map((line) => {
+  const segs = splitLines(raw).filter(Boolean).map((line) => {
     const f = line.split(fs);
     if (f[0] === 'MSH') f.splice(1, 0, fs); // MSH-1 is the separator itself
     return f;
@@ -107,7 +147,7 @@ export function parse(text) {
 }
 /** Value at "SEG-f.c" e.g. "PV1-3.4" for the first segment of that name. */
 export function at(msg, pathStr) {
-  const m = pathStr.match(/^([A-Z0-9]{3})-(\d+)(?:\.(\d+))?$/);
+  const m = /^([A-Z0-9]{3})-(\d+)(?:\.(\d+))?$/.exec(pathStr);
   if (!m) return '';
   const s = msg.get(m[1])[0];
   if (!s) return '';
@@ -127,10 +167,11 @@ export function patientFromPid(msg, pidSeg, cfg) {
   const ppRep = ids.find((r) => pp.includes((r[4] || '').toUpperCase()));
   const xpn = String(pidSeg[5] || '').split('~')[0].split('^').map(unesc);
   const name = [xpn[1], xpn[2], xpn[0]].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+  const otherType = ppRep ? 'Passport' : null;
   return {
     mrn: (mrnRep[0] || '').trim(),
     name,
-    identifierType: natRep ? 'NationalId' : ppRep ? 'Passport' : null,
+    identifierType: natRep ? 'NationalId' : otherType,
     identifier: (natRep || ppRep)?.[0] || null,
     dateOfBirth: isoFromHl7(pidSeg[7]),
     clinicCode: cfg.clinicSource === 'default' ? null : at(msg, cfg.hl7ClinicField || 'PV1-3.4') || null,

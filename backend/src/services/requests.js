@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { query, withTx, params } from '../db/pool.js';
 import { config } from '../config.js';
 import {
-  STATUS, ACTIONS, DEST, FACILITY_TYPE, FACILITY_TYPE_FOR_DEST, ROLES, STATUS_ORDER, ACTIVE_STATUSES,
+  STATUS, ACTIONS, DEST, FACILITY_TYPE_FOR_DEST, ROLES, STATUS_ORDER,
   CONTENT_TYPES, WIZARD_DOC_TYPES, KPI_DEFS, kpiKeysFor, STATUS_META, DEST_LABELS, MAX_DATE_OPTIONS,
 } from '../domain/constants.js';
 import { canView, visibilitySql, hasRole, inClinic, isCoordination } from '../domain/access.js';
@@ -16,13 +16,14 @@ import {
 } from '../domain/validation.js';
 import { todayIn, isIsoDate, fmtRange } from '../domain/dates.js';
 import { mergeValues, renderTemplate } from '../domain/templates.js';
-import { AppError, notFound, forbidden, conflict, badRequest, validationFailed, fromWorkflow } from '../lib/errors.js';
+import { AppError, notFound, forbidden, conflict, validationFailed, fromWorkflow } from '../lib/errors.js';
 import { audit } from './audit.js';
 import { currentFieldRules } from './formSettings.js';
 import { currentInputRules } from './validationSettings.js';
 import { queueForAction } from './integrations/engine.js';
 import { normalizePlan, planText } from '../domain/sessionPlan.js';
 import { notify, flushEmails, getActiveTemplate } from './notifications.js';
+import { flushPush } from './push.js';
 import { userIdsWithRole } from './users.js';
 import { storage, storageKey } from './storage.js';
 import { sendMail } from './mailer.js';
@@ -122,7 +123,10 @@ const SORTS = {
   pending: 'x.days_pending', updated: 'x.updated_at',
 };
 
-const asArray = (v) => (Array.isArray(v) ? v : v == null || v === '' ? [] : String(v).split(','));
+const asArray = (v) => {
+  const parts = v == null || v === '' ? [] : String(v).split(',');
+  return Array.isArray(v) ? v : parts;
+};
 
 function buildListWhere(user, f, p, values, t) {
   const vis = visibilitySql(user, 'x', values.length + 1);
@@ -195,7 +199,7 @@ export async function kpiCounts(user) {
 export async function exportCsv(user, f, ip) {
   const { rows } = await listRequests(user, { ...f, all: true });
   const head = ['Request ID', 'Patient', 'MRN', 'Destination type', 'Destination', 'Facility', 'Travel start', 'Travel end', 'Sessions', 'Status', 'Days pending', 'Last updated (UTC)'];
-  const cell = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const cell = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s; };
   const lines = rows.map((r) => [
     r.requestNumber, r.patientShort, r.mrnMasked, DEST_LABELS[r.destinationType] || '', [r.destinationCity, r.destinationCountryName].filter(Boolean).join(', '),
     r.facilityName, r.travelStart, r.travelEnd, r.sessionsRequired, STATUS_META[r.status].label, r.daysPending ?? '', new Date(r.updatedAt).toISOString(),
@@ -272,6 +276,7 @@ export async function getDetail(user, id) {
 async function runAction(user, id, action, rowVersion, fn) {
   const t = today();
   const emailIds = [];
+  const pushTargets = [];
   const cleanup = []; // storage objects to remove if the transaction rolls back
   const afterCommit = [];
   let result;
@@ -284,13 +289,14 @@ async function runAction(user, id, action, rowVersion, fn) {
       }
       const chk = checkAction(action, r, user, t);
       if (!chk.ok) throw fromWorkflow(chk);
-      return fn({ c, r, user, today: t, emailIds, cleanup, afterCommit });
+      return fn({ c, r, user, today: t, emailIds, pushTargets, cleanup, afterCommit });
     });
   } catch (err) {
     await Promise.all(cleanup.map((k) => storage.remove(k).catch(() => {})));
     throw err;
   }
   await flushEmails(emailIds);
+  await flushPush(pushTargets);
   for (const f of afterCommit) await f().catch((e) => console.error('[after-commit]', e.message)); // NOSONAR hooks run in the order they were registered
   return result;
 }
@@ -320,6 +326,7 @@ const touch = (c, id) => c.query('UPDATE holiday_dialysis_request SET updated_at
 async function queueNotify(ctx, n) {
   const ids = await notify(ctx.c, { requestId: ctx.r.id, ...n });
   ctx.emailIds.push(...ids);
+  if (n.userIds?.length && n.title) ctx.pushTargets.push({ userIds: n.userIds, title: n.title, message: n.message, requestId: ctx.r.id });
 }
 
 // ------------------------------------------------------------------ drafts (§6)
@@ -329,34 +336,35 @@ function cleanStr(v, max = 200) {
   return s ? s.slice(0, max) : null;
 }
 
-function sanitizeDraft(vr, body = {}) {
-  const errors = {};
-  const out = {};
-  const pt = body.patient || {};
-  out.patient = isUuid(pt.id)
-    ? { id: pt.id }
-    : {
-      name: cleanStr(pt.name, 200), mrn: cleanStr(pt.mrn, 30),
-      identifierType: ['NationalId', 'Passport'].includes(pt.identifierType) ? pt.identifierType : null,
-      identifier: cleanStr(pt.identifier, 20),
-    };
-  out.destinationType = Object.values(DEST).includes(body.destinationType) ? body.destinationType : null;
-  out.destinationCountry = cleanStr(body.destinationCountry, 2)?.toUpperCase() || null;
-  out.destinationCity = cleanStr(body.destinationCity, 100);
-  out.receivingFacilityId = isUuid(body.receivingFacilityId) ? body.receivingFacilityId : null;
-  out.freeTextFacility = cleanStr(body.freeTextFacility, 200);
+function draftPatient(pt) {
+  if (isUuid(pt.id)) return { id: pt.id };
+  return {
+    name: cleanStr(pt.name, 200), mrn: cleanStr(pt.mrn, 30),
+    identifierType: ['NationalId', 'Passport'].includes(pt.identifierType) ? pt.identifierType : null,
+    identifier: cleanStr(pt.identifier, 20),
+  };
+}
+
+function draftDates(body, out, errors) {
   for (const k of ['travelStart', 'travelEnd']) {
     const v = cleanStr(body[k], 10);
     if (v && !isIsoDate(v)) errors[k] = 'Enter a valid date.';
     out[k] = v && isIsoDate(v) ? v : null;
   }
+  if (out.travelStart && out.travelEnd && out.travelEnd <= out.travelStart) errors.travelEnd = 'Travel end date must be after the start date.';
+}
+
+function draftSessions(body, out, errors) {
   // Treatment days & shifts: the number of sessions is the number of days chosen.
   // (Older clients that only send sessionsRequired still work while the plan is empty.)
   out.sessionPlan = normalizePlan(body.sessionPlan);
   const s = body.sessionsRequired;
-  if (!out.sessionPlan.length && s != null && s !== '' && !(Number.isInteger(Number(s)) && Number(s) > 0)) errors.sessionsRequired = 'Enter a whole number of 1 or more.';
-  out.sessionsRequired = out.sessionPlan.length || (Number.isInteger(Number(s)) && Number(s) > 0 ? Number(s) : null);
-  out.modApplies = body.modApplies === true;
+  const whole = Number.isInteger(Number(s)) && Number(s) > 0;
+  if (!out.sessionPlan.length && s != null && s !== '' && !whole) errors.sessionsRequired = 'Enter a whole number of 1 or more.';
+  out.sessionsRequired = out.sessionPlan.length || (whole ? Number(s) : null);
+}
+
+function draftMobiles(body, vr, out, errors) {
   // contact numbers: drafts may be incomplete, but anything typed must be a valid mobile number
   for (const k of ['patientMobile', 'relativeMobile']) {
     const raw = cleanStr(body[k], 30);
@@ -364,8 +372,22 @@ function sanitizeDraft(vr, body = {}) {
     if (err) errors[k] = err;
     out[k] = raw ? normalizeMobile(raw, vr, k) : null;
   }
+}
+
+function sanitizeDraft(vr, body = {}) {
+  const errors = {};
+  const out = {};
+  out.patient = draftPatient(body.patient || {});
+  out.destinationType = Object.values(DEST).includes(body.destinationType) ? body.destinationType : null;
+  out.destinationCountry = cleanStr(body.destinationCountry, 2)?.toUpperCase() || null;
+  out.destinationCity = cleanStr(body.destinationCity, 100);
+  out.receivingFacilityId = isUuid(body.receivingFacilityId) ? body.receivingFacilityId : null;
+  out.freeTextFacility = cleanStr(body.freeTextFacility, 200);
+  draftDates(body, out, errors);
+  draftSessions(body, out, errors);
+  out.modApplies = body.modApplies === true;
+  draftMobiles(body, vr, out, errors);
   out.relativeName = cleanStr(body.relativeName, 100);
-  if (out.travelStart && out.travelEnd && out.travelEnd <= out.travelStart) errors.travelEnd = 'Travel end date must be after the start date.';
   if (Object.keys(errors).length) throw validationFailed(errors);
   return out;
 }
@@ -541,7 +563,7 @@ async function assertDestinationTarget(c, r) {
   if (!r.receivingFacilityId) return; // International free-text case already validated
   const { rows } = await c.query('SELECT facility_type, is_active FROM facility WHERE id = $1', [r.receivingFacilityId]);
   const f = rows[0];
-  const ok = f && f.is_active && f.facility_type === FACILITY_TYPE_FOR_DEST[r.destinationType]
+  const ok = f?.is_active && f.facility_type === FACILITY_TYPE_FOR_DEST[r.destinationType]
     && !(r.destinationType === DEST.INTERNAL && r.receivingFacilityId === r.requestingFacilityId);
   if (!ok) throw validationFailed({ receivingFacilityId: 'The receiving facility is no longer available or does not match the destination type.' }, undefined, { step: 2 });
 }
@@ -753,10 +775,76 @@ export async function resendToProvider(user, id, { rowVersion }, ip) {
   return getDetail(user, id);
 }
 
+const PROVIDER_ACTION = {
+  Approved: ACTIONS.RECORD_PROVIDER_APPROVED,
+  Declined: ACTIONS.RECORD_PROVIDER_DECLINED,
+  Alternative: ACTIONS.RECORD_PROVIDER_ALTERNATIVE,
+};
+
+function outcomeFields(outcome, body, r, today) {
+  if (outcome === 'Alternative') {
+    const options = parseOptions(body.options);
+    const errs = validateDateOptions(options, today, { max: MAX_DATE_OPTIONS });
+    if (Object.keys(errs).length) throw validationFailed(errs);
+    return { notes: cleanStr(body.notes, 1000), reason: null, options };
+  }
+  if (outcome === 'Approved') {
+    const err = validateConfirmedDates(r, body.confirmedStart, body.confirmedEnd);
+    if (err) throw validationFailed({ confirmedDates: err });
+    return { notes: cleanStr(body.notes, 1000), reason: null, options: null };
+  }
+  const err = validateReason(body.reason, 'decline reason');
+  if (err) throw validationFailed({ reason: err });
+  return { notes: null, reason: body.reason.trim(), options: null };
+}
+
+async function storeReplyFile(c, r, user, file, cleanup) {
+  if (!file) return null;
+  const ext = fileExtension(file.originalname);
+  const key = storageKey(r.id, file.originalname);
+  await storage.put(key, file.buffer, CONTENT_TYPES[ext]);
+  cleanup.push(key);
+  const hash = crypto.createHash('sha256').update(file.buffer).digest('hex');
+  const { rows } = await c.query(
+    `INSERT INTO request_document (request_id, document_type, file_name, storage_key, content_type, file_size_bytes, file_hash, source_system, uploaded_by_user_id)
+     VALUES ($1, 'ProviderReply', $2, $3, $4, $5, $6, 'ProviderEmail', $7) RETURNING id`,
+    [r.id, file.originalname.slice(-200), key, CONTENT_TYPES[ext], file.size, hash, user.id],
+  );
+  return rows[0].id;
+}
+
+async function applyProviderOutcome(ctx, user, { outcome, action, body, notes, reason, options, replyDocId, facilityName }) {
+  const { c, r } = ctx;
+  if (outcome === 'Alternative') {
+    await createProposal(ctx, { source: 'ExternalProvider', options, message: notes, replyDocId, decider: facilityName });
+    return;
+  }
+  if (outcome === 'Approved') {
+    await recordDecision(c, r, user, { type: 'Approved', source: 'ExternalProvider', start: body.confirmedStart, end: body.confirmedEnd, notes });
+    await transition(ctx, action, {
+      title: 'Provider response recorded – Approved',
+      note: `Confirmed sessions ${fmtRange(body.confirmedStart, body.confirmedEnd)}.${notes ? ` Notes: ${notes}` : ''}`,
+      set: { confirmed_at: NOW },
+    });
+    await queueNotify(ctx, {
+      userIds: [r.createdBy], type: 'Confirmed', title: 'Request confirmed',
+      message: `${r.requestNumber}: ${facilityName} confirmed the sessions. The confirmation letter is ready.`,
+      email: { templateCode: 'Confirmed', values: mergeValues({ ...r, decision: { confirmedStart: body.confirmedStart, confirmedEnd: body.confirmedEnd } }) },
+    });
+    return;
+  }
+  await recordDecision(c, r, user, { type: 'Declined', source: 'ExternalProvider', reason });
+  await transition(ctx, action, { title: 'Provider response recorded – Declined', note: reason });
+  await queueNotify(ctx, {
+    userIds: [r.createdBy], type: 'Rejected', title: 'Request declined by provider',
+    message: `${r.requestNumber} was declined by ${facilityName}. You can submit a new request to rebook.`,
+    email: { templateCode: 'Rejected', values: mergeValues({ ...r, decision: { reason } }) },
+  });
+}
+
 export async function recordProviderResponse(user, id, body, file, ip) {
   const outcome = body.outcome;
-  const action = outcome === 'Approved' ? ACTIONS.RECORD_PROVIDER_APPROVED : outcome === 'Declined' ? ACTIONS.RECORD_PROVIDER_DECLINED
-    : outcome === 'Alternative' ? ACTIONS.RECORD_PROVIDER_ALTERNATIVE : null;
+  const action = PROVIDER_ACTION[outcome];
   if (!action) throw validationFailed({ outcome: 'Choose Approved, Other dates or Declined.' });
   if (file) {
     const ferr = validateFile('ProviderReply', file.originalname, file.size);
@@ -764,66 +852,15 @@ export async function recordProviderResponse(user, id, body, file, ip) {
   }
   await runAction(user, id, action, body.rowVersion, async (ctx) => {
     const { c, r, cleanup } = ctx;
-    let notes = null;
-    let reason = null;
-    let options = null;
-    if (outcome === 'Alternative') {
-      options = parseOptions(body.options);
-      const errs = validateDateOptions(options, ctx.today, { max: MAX_DATE_OPTIONS });
-      if (Object.keys(errs).length) throw validationFailed(errs);
-      notes = cleanStr(body.notes, 1000);
-    } else if (outcome === 'Approved') {
-      const err = validateConfirmedDates(r, body.confirmedStart, body.confirmedEnd);
-      if (err) throw validationFailed({ confirmedDates: err });
-      notes = cleanStr(body.notes, 1000);
-    } else {
-      const err = validateReason(body.reason, 'decline reason');
-      if (err) throw validationFailed({ reason: err });
-      reason = body.reason.trim();
-    }
-    let replyDocId = null;
-    if (file) {
-      const ext = fileExtension(file.originalname);
-      const key = storageKey(r.id, file.originalname);
-      await storage.put(key, file.buffer, CONTENT_TYPES[ext]);
-      cleanup.push(key);
-      const hash = crypto.createHash('sha256').update(file.buffer).digest('hex');
-      const { rows } = await c.query(
-        `INSERT INTO request_document (request_id, document_type, file_name, storage_key, content_type, file_size_bytes, file_hash, source_system, uploaded_by_user_id)
-         VALUES ($1, 'ProviderReply', $2, $3, $4, $5, $6, 'ProviderEmail', $7) RETURNING id`,
-        [r.id, file.originalname.slice(-200), key, CONTENT_TYPES[ext], file.size, hash, user.id],
-      );
-      replyDocId = rows[0].id;
-    }
+    const fields = outcomeFields(outcome, body, r, ctx.today);
+    const replyDocId = await storeReplyFile(c, r, user, file, cleanup);
+    const facilityName = r.selectedFacilityName || r.freeTextFacility || 'the provider';
     await c.query(
       `INSERT INTO provider_communication (request_id, facility_id, direction, message_type, subject, body, sent_by_user_id, delivery_status, reply_document_id)
        VALUES ($1, $2, 'Inbound', 'Reply', $3, $4, $5, 'Recorded', $6)`,
-      [r.id, r.selectedFacilityId, `Provider reply recorded – ${outcome === 'Alternative' ? 'Other dates proposed' : outcome}`, notes || reason, user.id, replyDocId],
+      [r.id, r.selectedFacilityId, `Provider reply recorded – ${outcome === 'Alternative' ? 'Other dates proposed' : outcome}`, fields.notes || fields.reason, user.id, replyDocId],
     );
-    const facilityName = r.selectedFacilityName || r.freeTextFacility || 'the provider';
-    if (outcome === 'Alternative') {
-      await createProposal(ctx, { source: 'ExternalProvider', options, message: notes, replyDocId, decider: facilityName });
-    } else if (outcome === 'Approved') {
-      await recordDecision(c, r, user, { type: 'Approved', source: 'ExternalProvider', start: body.confirmedStart, end: body.confirmedEnd, notes });
-      await transition(ctx, action, {
-        title: 'Provider response recorded – Approved',
-        note: `Confirmed sessions ${fmtRange(body.confirmedStart, body.confirmedEnd)}.${notes ? ` Notes: ${notes}` : ''}`,
-        set: { confirmed_at: NOW },
-      });
-      await queueNotify(ctx, {
-        userIds: [r.createdBy], type: 'Confirmed', title: 'Request confirmed',
-        message: `${r.requestNumber}: ${facilityName} confirmed the sessions. The confirmation letter is ready.`,
-        email: { templateCode: 'Confirmed', values: mergeValues({ ...r, decision: { confirmedStart: body.confirmedStart, confirmedEnd: body.confirmedEnd } }) },
-      });
-    } else {
-      await recordDecision(c, r, user, { type: 'Declined', source: 'ExternalProvider', reason });
-      await transition(ctx, action, { title: 'Provider response recorded – Declined', note: reason });
-      await queueNotify(ctx, {
-        userIds: [r.createdBy], type: 'Rejected', title: 'Request declined by provider',
-        message: `${r.requestNumber} was declined by ${facilityName}. You can submit a new request to rebook.`,
-        email: { templateCode: 'Rejected', values: mergeValues({ ...r, decision: { reason } }) },
-      });
-    }
+    await applyProviderOutcome(ctx, user, { outcome, action, body, replyDocId, facilityName, ...fields });
     await audit(c, { user, action: 'ProviderResponseRecorded', entityType: 'Request', entityId: r.requestNumber, detail: { outcome, replyAttached: !!file }, ip });
   });
   return getDetail(user, id);
@@ -862,7 +899,11 @@ async function loadProposals(requestId) {
   }));
 }
 
-const optionText = (o) => `${fmtRange(o.start, o.end)}${o.sessions ? ` (${o.sessions} sessions)` : ''}${o.sessionPlan?.length ? `: ${planText(o.sessionPlan)}` : ''}`;
+const optionText = (o) => {
+  const sessions = o.sessions ? ` (${o.sessions} sessions)` : '';
+  const plan = o.sessionPlan?.length ? `: ${planText(o.sessionPlan)}` : '';
+  return `${fmtRange(o.start, o.end)}${sessions}${plan}`;
+};
 
 /** Save a proposal + options, move the request to "Other dates proposed" and tell the requester. */
 async function createProposal(ctx, { source, options, message, replyDocId = null, decider }) {
@@ -880,10 +921,14 @@ async function createProposal(ctx, { source, options, message, replyDocId = null
       [pid, i + 1, o.start, o.end, o.sessions ?? null, o.note ?? null, JSON.stringify(o.sessionPlan || [])]);
   }
   const action = source === 'ExternalProvider' ? ACTIONS.RECORD_PROVIDER_ALTERNATIVE : ACTIONS.PROPOSE_DATES;
-  const list = options.map((o, i) => `Option ${i + 1}: ${optionText(o)}${o.note ? ` – ${o.note}` : ''}`).join('\n');
+  const list = options.map((o, i) => {
+    const extra = o.note ? ` – ${o.note}` : '';
+    return `Option ${i + 1}: ${optionText(o)}${extra}`;
+  }).join('\n');
+  const more = message ? `\n${message}` : '';
   await transition(ctx, action, {
     title: source === 'ExternalProvider' ? 'Provider proposed other dates' : 'Receiving clinic proposed other dates',
-    note: `${list}${message ? `\n${message}` : ''}`,
+    note: `${list}${more}`,
   });
   await queueNotify(ctx, {
     userIds: [r.createdBy], type: 'DatesProposed', title: 'Other dates proposed',
@@ -953,9 +998,11 @@ export async function acceptProposedDates(user, id, body = {}, file = null, ip =
       [r.id, start, end, sessions, JSON.stringify(plan)]);
     Object.assign(r, { travelStart: start, travelEnd: end, sessionsRequired: sessions ?? r.sessionsRequired, ...(plan.length ? { sessionPlan: plan } : {}) });
     await recordDecision(c, r, user, { type: 'Approved', source: prop.proposal_source, start, end, notes: `Proposed option ${o.option_no} accepted by the requesting clinic.` });
+    const accepted = `Option ${o.option_no}: ${optionText({ start, end, sessions, sessionPlan: plan })}. Travel dates changed from ${before}.`;
+    const attached = file ? ' Updated MOH approval attached.' : '';
     await transition(ctx, ACTIONS.ACCEPT_PROPOSED_DATES, {
       title: 'Proposed dates accepted',
-      note: `Option ${o.option_no}: ${optionText({ start, end, sessions, sessionPlan: plan })}. Travel dates changed from ${before}.${file ? ' Updated MOH approval attached.' : ''}`,
+      note: `${accepted}${attached}`,
       set: { confirmed_at: NOW },
     });
     const values = mergeValues({ ...r, decision: { confirmedStart: start, confirmedEnd: end } });
@@ -1062,4 +1109,5 @@ export async function confirmationLetter(user, id, ip) {
   return { pdf, fileName: `Confirmation_${r.requestNumber}.pdf` };
 }
 
-export { ACTIVE_STATUSES, loadRequest, mapRequest, FACILITY_TYPE };
+export { loadRequest, mapRequest };
+export { ACTIVE_STATUSES, FACILITY_TYPE } from '../domain/constants.js';

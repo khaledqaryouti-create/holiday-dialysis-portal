@@ -20,4 +20,11 @@ async function main() {
   console.log(`\nTemporary password for ${rows[0].display_name} (${email}):\n\n    ${pw}\n\nLocal password sign-in is switched on. They must change this password when they sign in.\n`);
 }
 
-main().catch((e) => { console.error(`[auth] ${e.message}`); process.exitCode = 1; }).finally(() => pool.end());
+try {
+  await main();
+} catch (e) {
+  console.error(`[auth] ${e.message}`);
+  process.exitCode = 1;
+} finally {
+  await pool.end();
+}

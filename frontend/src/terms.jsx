@@ -1,7 +1,7 @@
 // Terminology (Admin Settings → Terminology): your own words for standard terms, original wording otherwise.
 // Usage anywhere:  t('nav.myRequests')   statusLabel(status)   destLabel(type)
 // The wording is loaded once at start-up (before the app shows) and again after IT saves the Terminology page.
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { api } from './api.js';
 import { STATUS_META, DEST_LABELS } from '@domain/constants.js';
 import { termText } from '@domain/terminology.js';
@@ -30,8 +30,9 @@ export function TerminologyProvider({ children }) {
     const tm = setTimeout(() => setReady(true), 2000); // never hold the app back for long
     return () => clearTimeout(tm);
   }, [load]);
+  const value = useMemo(() => ({ refresh, version }), [refresh, version]);
   if (!ready) return null;
   // key: re-draw the app with the new wording after IT saves the Terminology page
-  return <Ctx.Provider value={{ refresh, version }}><div key={version} style={{ display: 'contents' }}>{children}</div></Ctx.Provider>;
+  return <Ctx.Provider value={value}><div key={version} style={{ display: 'contents' }}>{children}</div></Ctx.Provider>;
 }
 export const useTerminology = () => useContext(Ctx);

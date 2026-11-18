@@ -158,7 +158,7 @@ export const visibleFields = (conn) => CONFIG_FIELDS.filter((f) => f.show({ prot
 
 /** Fill defaults for fields that apply (does not touch secrets). */
 export function withDefaults(conn) {
-  const config = { ...(conn.config || {}) };
+  const config = conn.config ? { ...conn.config } : {};
   for (let i = 0; i < 2; i += 1) { // twice: some fields only appear once another default is set
     for (const f of visibleFields({ ...conn, config })) {
       if (f.secret || f.default === undefined) continue;
@@ -168,7 +168,79 @@ export function withDefaults(conn) {
   return { ...conn, config };
 }
 
-const URL_RE = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
+function isSpace(code) {
+  return code === 32 || code === 9 || code === 10 || code === 11 || code === 12 || code === 13 || code === 160
+    || code === 0x1680 || code === 0x2028 || code === 0x2029 || code === 0x202f || code === 0x205f || code === 0x3000 || code === 0xfeff
+    || (code >= 0x2000 && code <= 0x200a);
+}
+
+/** http(s) address: scheme, no whitespace, at least two characters after it, first of those not / $ . ? #. */
+function isHttpUrl(value) {
+  const s = String(value);
+  const head = s.slice(0, 8).toLowerCase();
+  let rest = '';
+  if (head.startsWith('https://')) rest = s.slice(8);
+  else if (head.startsWith('http://')) rest = s.slice(7);
+  else return false;
+  if (rest.length < 2) return false;
+  const first = rest[0];
+  if (first === '/' || first === '$' || first === '.' || first === '?' || first === '#') return false;
+  for (let i = 0; i < rest.length; i++) if (isSpace(rest.charCodeAt(i))) return false;
+  return true;
+}
+
+const emptyValue = (v) => v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length);
+const secretMissing = (conn, savedSecrets, k) => !(conn.secrets || {})[k] && !savedSecrets[k];
+
+function typedError(f, v) {
+  let msg = null;
+  if (f.type === 'url' && !isHttpUrl(v)) msg = 'Enter a full address starting with https:// (or http:// for a test system).';
+  if (f.type === 'number' && (!Number.isInteger(Number(v)) || Number(v) < 0 || Number(v) > 65535)) msg = 'Enter a whole number.';
+  if (f.type === 'select' && !(String(v) in f.options)) msg = 'Choose one of the options.';
+  if (f.type === 'multi' && (!Array.isArray(v) || v.some((x) => !(x in f.options)))) msg = 'Choose from the list.';
+  if (typeof v === 'string' && v.length > (f.type === 'textarea' ? 8000 : 500)) msg = 'This is too long.';
+  return msg;
+}
+
+function fieldError(f, v) {
+  const empty = emptyValue(v);
+  if (f.required && empty) return `Enter the ${f.label.toLowerCase()}.`;
+  if (empty) return null;
+  return typedError(f, v);
+}
+
+function flowErrors(conn, c, flows, p) {
+  const e = {};
+  if (!flows.length) e.flows = 'Choose at least one thing to exchange.';
+  for (const f of flows) if (!p.flows.includes(f)) e.flows = `${p.short} can’t do “${FLOWS[f]?.label || f}”.`;
+  if (flows.includes('requestEvents') && !(c.events || []).length) e.events = 'Choose at least one event.';
+  const needsClinic = flows.includes('patientsInbound') || flows.includes('mrnLookup');
+  if (needsClinic && c.clinicSource === 'default' && !c.defaultClinicCode) e.defaultClinicCode = 'Enter the default clinic code.';
+  return e;
+}
+
+function httpSecretErrors(conn, c, savedSecrets) {
+  const e = {};
+  const need = (k) => secretMissing(conn, savedSecrets, k);
+  const httpAuth = c.authType;
+  if (httpAuth === 'basic' && (!c.username || need('password'))) e.password = 'Enter the user name and password.';
+  if (httpAuth === 'bearer' && need('token')) e.token = 'Enter the token.';
+  if (httpAuth === 'apiKey' && need('apiKey')) e.apiKey = 'Enter the API key.';
+  if (httpAuth === 'oauth2' && (!c.tokenUrl || !c.clientId || need('clientSecret'))) e.clientSecret = 'Enter the token URL, client ID and client secret.';
+  return e;
+}
+
+function sftpSecretErrors(conn, c, savedSecrets) {
+  const e = {};
+  const need = (k) => secretMissing(conn, savedSecrets, k);
+  if (!c.username) e.username = 'Enter the SFTP user name.';
+  const keyAuth = c.sftpAuth === 'key';
+  if (keyAuth ? need('privateKey') : need('password')) e[keyAuth ? 'privateKey' : 'password'] = 'Enter the SFTP password or private key.';
+  return e;
+}
+
+const usesHttp = (conn, c) => ['FHIR_R4', 'HL7V2_HTTP', 'REST_JSON'].includes(conn.protocol) || (conn.protocol === 'CDA' && c.transport === 'http');
+const usesSftp = (conn, c) => conn.protocol === 'SFTP' || (conn.protocol === 'CDA' && c.transport === 'sftp');
 
 /** Field errors ({} = valid). `savedSecrets` = which secrets are already stored. */
 export function validateConnection(conn, savedSecrets = {}) {
@@ -178,44 +250,28 @@ export function validateConnection(conn, savedSecrets = {}) {
   const p = PROTOCOLS[conn.protocol];
   if (!p) { e.protocol = 'Choose a protocol.'; return e; }
   const flows = conn.flows || [];
-  if (!flows.length) e.flows = 'Choose at least one thing to exchange.';
-  for (const f of flows) if (!p.flows.includes(f)) e.flows = `${p.short} can’t do “${FLOWS[f]?.label || f}”.`;
   const c = conn.config || {};
+  Object.assign(e, flowErrors(conn, c, flows, p));
   for (const f of visibleFields(conn)) {
     const v = f.secret ? (conn.secrets || {})[f.key] : c[f.key];
-    const empty = v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length);
-    if (f.required && empty) { e[f.key] = `Enter the ${f.label.toLowerCase()}.`; continue; }
-    if (empty) continue;
-    if (f.type === 'url' && !URL_RE.test(String(v))) e[f.key] = 'Enter a full address starting with https:// (or http:// for a test system).';
-    if (f.type === 'number' && (!Number.isInteger(Number(v)) || Number(v) < 0 || Number(v) > 65535)) e[f.key] = 'Enter a whole number.';
-    if (f.type === 'select' && !(String(v) in f.options)) e[f.key] = 'Choose one of the options.';
-    if (f.type === 'multi' && (!Array.isArray(v) || v.some((x) => !(x in f.options)))) e[f.key] = 'Choose from the list.';
-    if (typeof v === 'string' && v.length > (f.type === 'textarea' ? 8000 : 500)) e[f.key] = 'This is too long.';
+    const msg = fieldError(f, v);
+    if (msg) e[f.key] = msg;
   }
-  // auth secrets must exist (typed now or already saved)
-  const need = (k) => !(conn.secrets || {})[k] && !savedSecrets[k];
-  const httpAuth = c.authType;
-  if (['FHIR_R4', 'HL7V2_HTTP', 'REST_JSON'].includes(conn.protocol) || (conn.protocol === 'CDA' && c.transport === 'http')) {
-    if (httpAuth === 'basic' && (!c.username || need('password'))) e.password = 'Enter the user name and password.';
-    if (httpAuth === 'bearer' && need('token')) e.token = 'Enter the token.';
-    if (httpAuth === 'apiKey' && need('apiKey')) e.apiKey = 'Enter the API key.';
-    if (httpAuth === 'oauth2' && (!c.tokenUrl || !c.clientId || need('clientSecret'))) e.clientSecret = 'Enter the token URL, client ID and client secret.';
-  }
-  if (conn.protocol === 'SFTP' || (conn.protocol === 'CDA' && c.transport === 'sftp')) {
-    if (!c.username) e.username = 'Enter the SFTP user name.';
-    if (c.sftpAuth === 'key' ? need('privateKey') : need('password')) e[c.sftpAuth === 'key' ? 'privateKey' : 'password'] = 'Enter the SFTP password or private key.';
-  }
-  if ((flows.includes('requestEvents')) && !(c.events || []).length) e.events = 'Choose at least one event.';
-  if ((flows.includes('patientsInbound') || flows.includes('mrnLookup')) && c.clinicSource === 'default' && !c.defaultClinicCode) e.defaultClinicCode = 'Enter the default clinic code.';
+  if (usesHttp(conn, c)) Object.assign(e, httpSecretErrors(conn, c, savedSecrets));
+  if (usesSftp(conn, c)) Object.assign(e, sftpSecretErrors(conn, c, savedSecrets));
   return e;
 }
 
 /** "RNC=RUH-N" lines → { RNC: 'RUH-N' } */
 export function parseClinicMap(text) {
   const out = {};
-  for (const line of String(text || '').split(/\r?\n/)) {
-    const m = line.match(/^\s*([^=]+?)\s*=\s*(.+?)\s*$/);
-    if (m) out[m[1].toUpperCase()] = m[2];
+  for (const raw of String(text || '').split('\n')) {
+    const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+    const eq = line.indexOf('=');
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    const value = line.slice(eq + 1).trim();
+    if (key && value) out[key.toUpperCase()] = value;
   }
   return out;
 }

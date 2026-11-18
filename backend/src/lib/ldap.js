@@ -25,13 +25,20 @@ async function serviceBind(client, s) {
 }
 
 const first = (v) => (Array.isArray(v) ? v[0] : v);
-const list = (v) => (v == null ? [] : Array.isArray(v) ? v.map(String) : [String(v)]);
+const list = (v) => {
+  const values = Array.isArray(v) ? v.map(String) : [String(v)];
+  return v == null ? [] : values;
+};
 
 function readUser(entry, s) {
+  const upn = first(entry.userPrincipalName) ? String(first(entry.userPrincipalName)).toLowerCase() : null;
+  const email = first(entry[s.emailAttr]) ? String(first(entry[s.emailAttr])).toLowerCase() : upn;
+  const cn = first(entry.cn) ? String(first(entry.cn)) : null;
+  const name = first(entry[s.nameAttr]) ? String(first(entry[s.nameAttr])) : cn;
   return {
     dn: entry.dn,
-    email: first(entry[s.emailAttr]) ? String(first(entry[s.emailAttr])).toLowerCase() : (first(entry.userPrincipalName) ? String(first(entry.userPrincipalName)).toLowerCase() : null),
-    name: first(entry[s.nameAttr]) ? String(first(entry[s.nameAttr])) : (first(entry.cn) ? String(first(entry.cn)) : null),
+    email,
+    name,
     groups: list(entry[s.groupAttr]),
   };
 }

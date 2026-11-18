@@ -37,7 +37,7 @@ async function submitPasswordChange(e, { f, forced, problems, setErr, setBusy, t
     toast('Password changed');
     await refresh();
     onDone?.();
-  } catch (x) { setErr(x.fields && Object.keys(x.fields).length ? x.fields : { general: x.message }); } finally { setBusy(false); }
+  } catch (error_) { setErr(error_.fields && Object.keys(error_.fields).length ? error_.fields : { general: error_.message }); } finally { setBusy(false); }
 }
 
 export default function ChangePasswordPage({ forced = false, onDone }) {

@@ -48,7 +48,7 @@ export default function TerminologyPage() {
       data.setData(r); setF({ enabled: r.enabled, terms: { ...r.terms } });
       toast(r.enabled ? 'Terminology saved and in use' : 'Terminology saved (not in use yet)');
       setTimeout(() => live.refresh(), 400); // re-draw the portal with the new wording
-    } catch (x) { setErr(x.fields || {}); toast(x.message, 'bad'); } finally { setBusy(false); }
+    } catch (error_) { setErr(error_.fields || {}); toast(error_.message, 'bad'); } finally { setBusy(false); }
   }
   async function restoreAll() {
     if (!(await confirm({ title: 'Restore all original terms?', body: 'Every term goes back to its original wording. Nothing changes for users until you click Save.', ok: 'Restore originals' }))) return;

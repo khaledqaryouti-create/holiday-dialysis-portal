@@ -6,8 +6,27 @@ import { normalizePlan, planError } from './sessionPlan.js';
 import { DEST, DOC_TYPES, MAX_FILE_BYTES, REASON_MIN, REASON_MAX, CONFIRMED_DATES_TOLERANCE_DAYS } from './constants.js';
 import { isIsoDate, addDays, fmtRange } from './dates.js';
 
-export const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-export const isEmail = (s) => typeof s === 'string' && EMAIL_RE.test(s.trim());
+function hasSpace(s) {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 32 || c === 9 || c === 10 || c === 11 || c === 12 || c === 13 || c === 160 || c === 0xfeff
+      || c === 0x1680 || c === 0x2028 || c === 0x2029 || c === 0x202f || c === 0x205f || c === 0x3000
+      || (c >= 0x2000 && c <= 0x200a)) return true;
+  }
+  return false;
+}
+
+/** One @, a dot in the domain, no spaces, at most 254 characters. */
+export function isEmail(s) {
+  if (typeof s !== 'string') return false;
+  const t = s.trim();
+  if (!t || t.length > 254 || hasSpace(t)) return false;
+  const at = t.indexOf('@');
+  if (at <= 0 || t.indexOf('@', at + 1) !== -1) return false;
+  const domain = t.slice(at + 1);
+  const dot = domain.indexOf('.');
+  return dot > 0 && dot < domain.length - 1;
+}
 const blank = (v) => v == null || String(v).trim() === '';
 
 /** `vr` = Validation Rules from Admin Settings (defaults: National ID 10 digits, passport 6–9 letters/digits). */
@@ -35,54 +54,89 @@ export function validateMobile(v, { required = false, label = 'mobile number', v
 /** "+966 5•• ••• 4567" style display that hides the middle digits. */
 export function maskMobile(v) {
   const s = String(v || '');
-  return s.length > 6 ? `${s.slice(0, s.startsWith('+966') ? 5 : 3)}••••${s.slice(-4)}` : s;
+  const keep = s.startsWith('+966') ? 5 : 3;
+  return s.length > 6 ? `${s.slice(0, keep)}••••${s.slice(-4)}` : s;
+}
+
+function patientMobileError(d, rules, vr) {
+  if (isHidden(rules, 'patientMobile')) return null;
+  return validateMobile(d.patientMobile, { required: isRequired(rules, 'patientMobile', d), label: 'patient’s mobile number', vr, key: 'patientMobile' });
+}
+
+function relativeMobileError(d, rules, vr) {
+  if (isHidden(rules, 'relativeMobile')) return null;
+  const rm = validateMobile(d.relativeMobile, { required: isRequired(rules, 'relativeMobile', d), label: 'relative’s mobile number', vr, key: 'relativeMobile' });
+  if (rm) return rm;
+  const same = d.relativeMobile && !isHidden(rules, 'patientMobile')
+    && normalizeMobile(d.relativeMobile, vr, 'relativeMobile') === normalizeMobile(d.patientMobile, vr, 'patientMobile');
+  return same ? 'Enter a different number from the patient’s, or leave it empty.' : null;
+}
+
+function relativeNameError(d, rules) {
+  if (isHidden(rules, 'relativeName')) return null;
+  if (isRequired(rules, 'relativeName', d) && blank(d.relativeName)) return 'Enter the relative’s name and relationship.';
+  if (d.relativeName && String(d.relativeName).length > 100) return 'Keep this under 100 characters.';
+  return null;
+}
+
+function manualPatientErrors(p, vr) {
+  const e = {};
+  if (blank(p.name)) e.patientName = 'Enter the patient’s name or choose them from the list.';
+  else {
+    const ne = checkText('patientName', p.name, vr);
+    if (ne) e.patientName = ne;
+  }
+  if (blank(p.mrn)) e.mrn = 'Enter the MRN.';
+  else {
+    const me = checkText('mrn', p.mrn, vr);
+    if (me) e.mrn = me;
+  }
+  const idErr = validateIdentifier(p.identifierType, p.identifier, vr);
+  if (idErr) e.identifier = idErr;
+  return e;
 }
 
 export function validatePatientStep(d, rules = DEFAULT_FIELD_RULES, vr = DEFAULT_INPUT_RULES) {
   const e = {};
   const p = d.patient || {};
-  if (!isHidden(rules, 'patientMobile')) {
-    const pm = validateMobile(d.patientMobile, { required: isRequired(rules, 'patientMobile', d), label: 'patient’s mobile number', vr, key: 'patientMobile' });
-    if (pm) e.patientMobile = pm;
-  }
-  if (!isHidden(rules, 'relativeMobile')) {
-    const rm = validateMobile(d.relativeMobile, { required: isRequired(rules, 'relativeMobile', d), label: 'relative’s mobile number', vr, key: 'relativeMobile' });
-    if (rm) e.relativeMobile = rm;
-    else if (d.relativeMobile && !isHidden(rules, 'patientMobile') && normalizeMobile(d.relativeMobile, vr, 'relativeMobile') === normalizeMobile(d.patientMobile, vr, 'patientMobile')) e.relativeMobile = 'Enter a different number from the patient’s, or leave it empty.';
-  }
-  if (!isHidden(rules, 'relativeName')) {
-    if (isRequired(rules, 'relativeName', d) && blank(d.relativeName)) e.relativeName = 'Enter the relative’s name and relationship.';
-    else if (d.relativeName && String(d.relativeName).length > 100) e.relativeName = 'Keep this under 100 characters.';
-  }
-  if (!p.id) {
-    if (blank(p.name)) e.patientName = 'Enter the patient’s name or choose them from the list.';
-    else { const ne = checkText('patientName', p.name, vr); if (ne) e.patientName = ne; }
-    if (blank(p.mrn)) e.mrn = 'Enter the MRN.';
-    else { const me = checkText('mrn', p.mrn, vr); if (me) e.mrn = me; }
-    const idErr = validateIdentifier(p.identifierType, p.identifier, vr);
-    if (idErr) e.identifier = idErr;
-  }
+  const pm = patientMobileError(d, rules, vr);
+  if (pm) e.patientMobile = pm;
+  const rm = relativeMobileError(d, rules, vr);
+  if (rm) e.relativeMobile = rm;
+  const rn = relativeNameError(d, rules);
+  if (rn) e.relativeName = rn;
+  if (!p.id) Object.assign(e, manualPatientErrors(p, vr));
   if (!Object.values(DEST).includes(d.destinationType)) e.destinationType = 'Choose a destination type.';
   return e;
 }
 
-/** Step 2 — Clinical & Destination details. */
-export function validateDestinationStep(d, today) {
+function placeErrors(d) {
   const e = {};
   if (d.destinationType === DEST.INTERNATIONAL) {
     if (blank(d.destinationCountry)) e.destinationCountry = 'Choose a country.';
     if (blank(d.destinationCity)) e.destinationCity = 'Enter the destination city.';
     if (blank(d.receivingFacilityId) && blank(d.freeTextFacility)) e.receivingFacilityId = 'Choose the receiving facility, or enter its name if it is not listed.';
-  } else {
-    if (blank(d.destinationCity)) e.destinationCity = 'Choose a destination city.';
-    if (blank(d.receivingFacilityId)) e.receivingFacilityId = 'Choose the receiving facility.';
+    return e;
   }
+  if (blank(d.destinationCity)) e.destinationCity = 'Choose a destination city.';
+  if (blank(d.receivingFacilityId)) e.receivingFacilityId = 'Choose the receiving facility.';
+  return e;
+}
+
+function travelDateErrors(d, today) {
+  const e = {};
   if (blank(d.travelStart)) e.travelStart = 'Choose the travel start date.';
   else if (!isIsoDate(d.travelStart)) e.travelStart = 'Enter a valid date.';
   else if (today && d.travelStart < today) e.travelStart = 'Travel start date cannot be in the past.';
   if (blank(d.travelEnd)) e.travelEnd = 'Choose the travel end date.';
   else if (!isIsoDate(d.travelEnd)) e.travelEnd = 'Enter a valid date.';
   else if (isIsoDate(d.travelStart) && d.travelEnd <= d.travelStart) e.travelEnd = 'Travel end date must be after the start date.';
+  return e;
+}
+
+/** Step 2 — Clinical & Destination details. */
+export function validateDestinationStep(d, today) {
+  const e = { ...placeErrors(d), ...travelDateErrors(d, today) };
   // Treatment days & shifts (the number of sessions = the number of days chosen)
   const plan = normalizePlan(d.sessionPlan);
   const pe = planError(plan, isIsoDate(d.travelStart) ? d.travelStart : null, isIsoDate(d.travelEnd) ? d.travelEnd : null, today);
@@ -164,7 +218,7 @@ export function initialsOf(name) {
 }
 export function shortName(name) {
   const p = String(name || '').split(/\s+/).filter(Boolean);
-  return p.length > 1 ? `${p[0]} ${p[p.length - 1][0]}.` : p[0] || '';
+  return p.length > 1 ? `${p[0]} ${p.at(-1)[0]}.` : p[0] || '';
 }
 
 /** SMTP security modes: 'ssl' = implicit TLS (usually port 465), 'starttls' = upgrade (usually 587), 'none' = plain (25, internal relays only). */
@@ -178,27 +232,44 @@ export const SMTP_SECURITY = Object.freeze({
  * Validate the Email (SMTP) settings form. `hasSavedPassword` lets the admin keep the stored password by leaving the field blank.
  * @returns {object} field → message
  */
-export function validateEmailSettings(s, { hasSavedPassword = false } = {}) {
-  const e = {};
+function hostError(s) {
   const host = String(s.host ?? '').trim();
+  if (!(s.enabled || host)) return null;
+  if (!host) return 'Enter the SMTP server name, for example smtp.office365.com.';
+  if (!/^[A-Za-z0-9.-]+$/.test(host) || host.length > 253) return 'Use a host name or IP address, without http:// or spaces.';
+  return null;
+}
+
+function portError(s) {
   const port = Number(s.port);
-  if (s.enabled || host) {
-    if (!host) e.host = 'Enter the SMTP server name, for example smtp.office365.com.';
-    else if (!/^[A-Za-z0-9.-]+$/.test(host) || host.length > 253) e.host = 'Use a host name or IP address, without http:// or spaces.';
-  }
-  if (s.enabled || s.port !== '' && s.port != null) {
-    if (!Number.isInteger(port) || port < 1 || port > 65535) e.port = 'Enter a port number from 1 to 65535.';
-  }
-  if (!Object.keys(SMTP_SECURITY).includes(s.security)) e.security = 'Choose the connection security.';
-  if (s.authRequired) {
-    if (!String(s.username ?? '').trim()) e.username = 'Enter the SMTP user name.';
-    if (!String(s.password ?? '') && !hasSavedPassword) e.password = 'Enter the SMTP password.';
-  }
-  if (s.enabled || s.fromEmail) {
-    if (!isEmail(s.fromEmail)) e.fromEmail = 'Enter the sender email address, for example holiday.dialysis@yourcompany.com.';
-  }
+  if (!(s.enabled || (s.port !== '' && s.port != null))) return null;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return 'Enter a port number from 1 to 65535.';
+  return null;
+}
+
+function authErrors(s, hasSavedPassword) {
+  const e = {};
+  if (!s.authRequired) return e;
+  if (!String(s.username ?? '').trim()) e.username = 'Enter the SMTP user name.';
+  if (!String(s.password ?? '') && !hasSavedPassword) e.password = 'Enter the SMTP password.';
+  return e;
+}
+
+function senderErrors(s) {
+  const e = {};
+  if ((s.enabled || s.fromEmail) && !isEmail(s.fromEmail)) e.fromEmail = 'Enter the sender email address, for example holiday.dialysis@yourcompany.com.';
   if (String(s.fromName ?? '').length > 100) e.fromName = 'Keep the sender name under 100 characters.';
   if (s.replyTo && !isEmail(s.replyTo)) e.replyTo = 'Enter a valid reply-to address, or leave it empty.';
+  return e;
+}
+
+export function validateEmailSettings(s, { hasSavedPassword = false } = {}) {
+  const e = { ...authErrors(s, hasSavedPassword), ...senderErrors(s) };
+  const host = hostError(s);
+  if (host) e.host = host;
+  const port = portError(s);
+  if (port) e.port = port;
+  if (!Object.keys(SMTP_SECURITY).includes(s.security)) e.security = 'Choose the connection security.';
   const t = Number(s.timeoutSeconds);
   if (!Number.isInteger(t) || t < 5 || t > 120) e.timeoutSeconds = 'Timeout must be 5–120 seconds.';
   return e;

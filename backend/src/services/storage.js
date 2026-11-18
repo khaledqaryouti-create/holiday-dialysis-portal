@@ -36,7 +36,8 @@ const sb = () => config.storage;
 // they go in the apikey header only, and Supabase's gateway handles authorisation.
 const sbHeaders = (extra = {}) => {
   const k = sb().supabaseServiceRoleKey;
-  return { apikey: k, ...(k.startsWith('sb_') ? {} : { Authorization: `Bearer ${k}` }), ...extra };
+  const bearer = `Bearer ${k}`;
+  return { apikey: k, ...(k.startsWith('sb_') ? {} : { Authorization: bearer }), ...extra };
 };
 const objectUrl = (key) => `${sb().supabaseUrl}/storage/v1/object/${encodeURIComponent(sb().bucket)}/${key.split('/').map(encodeURIComponent).join('/')}`;
 
