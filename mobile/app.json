@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "Holiday Dialysis",
+    "slug": "holiday-dialysis-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "holidaydialysis",
+    "userInterfaceStyle": "automatic",
+    "splash": { "backgroundColor": "#14432c", "resizeMode": "contain" },
+    "ios": { "supportsTablet": true, "bundleIdentifier": "com.diaverum.holidaydialysis", "infoPlist": { "NSCameraUsageDescription": "Used to photograph approval and ID documents to attach to a request." } },
+    "android": { "package": "com.diaverum.holidaydialysis", "permissions": ["CAMERA"], "adaptiveIcon": { "backgroundColor": "#14432c" } },
+    "plugins": [
+      "expo-secure-store",
+      ["expo-image-picker", { "cameraPermission": "Used to photograph approval and ID documents to attach to a request." }],
+      ["expo-notifications", { "color": "#14432c" }]
+    ],
+    "extra": {
+      "apiUrl": "https://holiday-dialysis.dev",
+      "eas": { "projectId": "" }
+    }
+  }
+}
