@@ -10,6 +10,39 @@ import { useBranding } from '../branding.jsx';
 import LoginVisual from '../components/LoginVisual.jsx';
 import { ForgotPasswordPanel } from '../components/PasswordReset.jsx';
 
+/** Facility ids are UUIDs. Anything else is not stored or restored as the last clinic. */
+function clinicUuid(value) {
+  const s = String(value || '');
+  const parts = [8, 4, 4, 4, 12];
+  let i = 0;
+  let out = '';
+  for (let p = 0; p < parts.length; p++) {
+    if (p) {
+      if (s[i] !== '-') return '';
+      out += '-';
+      i += 1;
+    }
+    for (let n = 0; n < parts[p]; n++) {
+      const c = s[i];
+      const hex = !!c && ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
+      if (!hex) return '';
+      out += c;
+      i += 1;
+    }
+  }
+  return i === s.length ? out : '';
+}
+
+function rememberedClinic() {
+  try { return clinicUuid(localStorage.getItem('hdp.lastClinic')); } catch { return ''; }
+}
+
+function clinicLabel(c) {
+  return `${c.name}${c.city && !c.name.includes(c.city) ? ` (${c.city})` : ''}`;
+}
+
+const usernameKey = (raw) => String(raw ?? '').trim().toLowerCase();
+
 /** The value Chrome actually put in the field, not only the value React last rendered. */
 function fieldValue(el) {
   if (!el) return '';
@@ -25,12 +58,6 @@ function MicrosoftLogo() {
     </svg>
   );
 }
-
-function clinicLabel(c) {
-  return `${c.name}${c.city && !c.name.includes(c.city) ? ` (${c.city})` : ''}`;
-}
-
-const usernameKey = (raw) => String(raw ?? '').trim().toLowerCase();
 
 function MicrosoftSignIn({ busy, label, onStart }) {
   return (
@@ -116,10 +143,6 @@ export default function LoginPage() {
   }, []);
   useEffect(() => () => clearTimeout(clinicTimer.current), []);
   const showPasswordForm = options.password || options.dev;
-
-  function rememberedClinic() {
-    try { return localStorage.getItem('hdp.lastClinic') || ''; } catch { return ''; }
-  }
 
   function pickClinic(list, currentId) {
     if (list.length === 1) return list[0].id;
@@ -269,11 +292,12 @@ export default function LoginPage() {
     setBusy('pw'); setError(null); setFieldErr({});
     try {
       await passwordLogin(username, password, clinicId);
-      try { if (clinicId) localStorage.setItem('hdp.lastClinic', clinicId); } catch { /* storage blocked */ }
-    } catch (err) {
+      const storedClinic = clinicUuid(clinicId);
+      try { if (storedClinic) localStorage.setItem('hdp.lastClinic', storedClinic); } catch { /* storage blocked */ }
+    } catch (error_) {
       setBusy(null);
-      if (err.fields?.clinic) { setFieldErr({ clinic: err.fields.clinic }); return; } // password was right; only the clinic needs fixing
-      setError(err); setForm((f) => ({ ...f, password: '' }));
+      if (error_.fields?.clinic) { setFieldErr({ clinic: error_.fields.clinic }); return; } // password was right; only the clinic needs fixing
+      setError(error_); setForm((f) => ({ ...f, password: '' }));
     }
   }
 

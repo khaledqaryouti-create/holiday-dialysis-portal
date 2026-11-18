@@ -5,7 +5,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pool } from '../src/db/pool.js';
 import { config, assertConfig } from '../src/config.js';
-import { DEV_SAMPLE_PASSWORD } from '../src/domain/constants.js';
+
+/** Development password for seeded accounts. Not used by the running portal or the React app. */
+const DEV_SAMPLE_PASSWORD = 'Holiday1!';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const reset = process.argv.includes('--reset');
@@ -60,4 +62,9 @@ async function main() {
   }
 }
 
-main().catch((e) => { console.error(`[seed] ${e.message}`); process.exitCode = 1; });
+try {
+  await main();
+} catch (e) {
+  console.error(`[seed] ${e.message}`);
+  process.exitCode = 1;
+}

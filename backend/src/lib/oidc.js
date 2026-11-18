@@ -5,15 +5,38 @@ import crypto from 'node:crypto';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 
 const DISCOVERY_TTL = 60 * 60 * 1000;
+const MS_ORIGIN = 'https://login.microsoftonline.com';
 const cache = new Map(); // tenant → { at, doc, jwks }
+
+/**
+ * Rebuild a discovery URL so a sign-in can only talk to Microsoft's login host.
+ * Anything else (another host, http, or a userinfo trick) is rejected.
+ */
+export function pinnedMicrosoftUrl(raw) {
+  let u;
+  try { u = new URL(String(raw)); } catch {
+    throw Object.assign(new Error('Microsoft sign-in address is not a valid URL.'), { code: 'BAD_ENDPOINT' });
+  }
+  if (u.protocol !== 'https:' || u.hostname !== 'login.microsoftonline.com' || u.username || u.password) {
+    throw Object.assign(new Error('Microsoft sign-in address is not on login.microsoftonline.com.'), { code: 'BAD_ENDPOINT' });
+  }
+  return `${MS_ORIGIN}${u.pathname}${u.search}`;
+}
 
 export async function discover(tenant) {
   const hit = cache.get(tenant);
   if (hit && Date.now() - hit.at < DISCOVERY_TTL) return hit;
-  const res = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(tenant)}/v2.0/.well-known/openid-configuration`, { signal: AbortSignal.timeout(10_000) });
+  const res = await fetch(`${MS_ORIGIN}/${encodeURIComponent(tenant)}/v2.0/.well-known/openid-configuration`, { signal: AbortSignal.timeout(10_000) });
   if (!res.ok) throw Object.assign(new Error(`Microsoft did not recognise the tenant "${tenant}" (HTTP ${res.status}).`), { code: 'TENANT_NOT_FOUND' });
   const doc = await res.json();
-  const entry = { at: Date.now(), doc, jwks: createRemoteJWKSet(new URL(doc.jwks_uri)) };
+  const authorization_endpoint = pinnedMicrosoftUrl(doc.authorization_endpoint);
+  const token_endpoint = pinnedMicrosoftUrl(doc.token_endpoint);
+  const jwks_uri = pinnedMicrosoftUrl(doc.jwks_uri);
+  const entry = {
+    at: Date.now(),
+    doc: { ...doc, authorization_endpoint, token_endpoint, jwks_uri },
+    jwks: createRemoteJWKSet(new URL(jwks_uri)),
+  };
   cache.set(tenant, entry);
   return entry;
 }
@@ -26,18 +49,18 @@ export function newPkce() {
 
 export async function authorizeUrl(s, { state, nonce, challenge }) {
   const { doc } = await discover(s.tenantId);
-  const u = new URL(doc.authorization_endpoint);
+  const u = new URL(pinnedMicrosoftUrl(doc.authorization_endpoint));
   u.search = new URLSearchParams({
     client_id: s.clientId, response_type: 'code', redirect_uri: s.redirectUri, response_mode: 'query',
     scope: 'openid profile email', state, nonce, code_challenge: challenge, code_challenge_method: 'S256', prompt: 'select_account',
   }).toString();
-  return u.toString();
+  return pinnedMicrosoftUrl(u.toString());
 }
 
 /** Exchange the code and verify the id_token. Returns the trusted claims. */
 export async function redeemCode(s, { code, verifier, nonce }) {
   const { doc, jwks } = await discover(s.tenantId);
-  const res = await fetch(doc.token_endpoint, {
+  const res = await fetch(pinnedMicrosoftUrl(doc.token_endpoint), {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({

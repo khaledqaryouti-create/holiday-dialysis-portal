@@ -115,8 +115,23 @@ authRouter.post('/change-password', ah(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------- Microsoft (Entra ID)
+/** A sign-in may leave the portal only for Microsoft's login host. */
+function microsoftRedirect(url) {
+  let u;
+  try { u = new URL(String(url)); } catch { return null; }
+  if (u.protocol !== 'https:' || u.hostname !== 'login.microsoftonline.com' || u.username || u.password) return null;
+  return `https://login.microsoftonline.com${u.pathname}${u.search}`;
+}
+
+/** Failure stays on this site: / plus an optional loginError query. */
+function loginErrorPath(message) {
+  const target = `/?loginError=${encodeURIComponent(message || 'Microsoft sign-in failed.')}`;
+  if (target[0] !== '/' || target[1] === '/' || target[1] === '\\') return '/';
+  return target;
+}
+
 authRouter.get('/microsoft/login', ah(async (_req, res) => {
-  res.redirect(await signin.microsoftStart(res));
+  res.redirect(microsoftRedirect(await signin.microsoftStart(res)) || '/');
 }));
 
 authRouter.get('/microsoft/callback', async (req, res) => {
@@ -125,7 +140,7 @@ authRouter.get('/microsoft/callback', async (req, res) => {
     await completeSignIn(req, res, userId, 'microsoft');
     res.redirect('/');
   } catch (err) {
-    res.redirect(`/?loginError=${encodeURIComponent(err.message || 'Microsoft sign-in failed.')}`);
+    res.redirect(loginErrorPath(err.message));
   }
 });
 

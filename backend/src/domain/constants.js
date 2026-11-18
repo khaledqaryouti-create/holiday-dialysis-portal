@@ -15,9 +15,6 @@ export const ROLE_LABELS = Object.freeze({
   IT_ADMIN: 'IT Admin',
 });
 
-/** Shared development password for seeded accounts. Shown on the sign-in page only when AUTH_MODE=dev. */
-export const DEV_SAMPLE_PASSWORD = 'Holiday1!';
-
 export const STATUS = Object.freeze({
   DRAFT: 'Draft',
   PENDING_CLINIC: 'PendingClinicResponse',

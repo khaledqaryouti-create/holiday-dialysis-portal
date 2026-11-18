@@ -18,6 +18,15 @@ const GENERIC = 'Incorrect user name or password.';
 const OIDC_COOKIE = 'hdp_oidc';
 const isGuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s));
 const noAccess = (msg) => new AppError(403, 'NO_ACCESS', msg || 'You don’t have access to the Holiday Dialysis Portal yet. Ask IT to add you.');
+function oneLine(s, max = 500) {
+  let out = '';
+  for (const ch of String(s ?? '')) {
+    const c = ch.codePointAt(0);
+    out += (c === 10 || c === 13) ? ' ' : ch;
+    if (out.length >= max) break;
+  }
+  return out;
+}
 
 /** What the login page should show. Works before migration 004 too (falls back to dev only). */
 export async function loginOptions() {
@@ -61,6 +70,54 @@ async function recordFailure(key, s) {
 
 const clearFailures = (key) => query('DELETE FROM auth_failure WHERE username_key = $1', [key]);
 
+async function findProvisionedUser(c, id) {
+  if (id.source === 'microsoft' && id.externalId) {
+    const byObject = (await c.query('SELECT id, email, account_status, entra_object_id FROM portal_user WHERE entra_object_id = $1', [id.externalId])).rows[0];
+    if (byObject) return byObject;
+  }
+  if (!id.email) return null;
+  return (await c.query('SELECT id, email, account_status, entra_object_id FROM portal_user WHERE lower(email) = lower($1)', [id.email])).rows[0] || null;
+}
+
+async function insertProvisionedUser(c, id, access, groupsKnown, ip) {
+  if (!id.email) throw noAccess('Your directory account has no email address, so a portal account can’t be created. Contact IT.');
+  if (!access.roles.length) {
+    throw noAccess(groupsKnown ? 'None of your groups give access to the Holiday Dialysis Portal. Ask IT to add you to the right group.'
+      : 'Your group memberships were not sent at sign-in, so a portal account can’t be created. Contact IT.');
+  }
+  const { rows } = await c.query(
+    `INSERT INTO portal_user (email, display_name, entra_object_id, ldap_dn) VALUES ($1, $2, $3, $4) RETURNING id`,
+    [id.email, id.name || id.email, id.source === 'microsoft' ? id.externalId : null, id.source === 'ldap' ? id.externalId : null]);
+  await replaceAssignments(c, rows[0].id, access.roles, access.clinicIds);
+  await audit(c, { user: null, action: 'UserAutoCreated', entityType: 'User', entityId: id.email, detail: { source: id.source, roles: access.roles, clinics: access.clinicIds.length }, ip });
+  return rows[0].id;
+}
+
+function syncedClinicIds(access, currentIds) {
+  if (!access.roles.includes(ROLES.CLINIC_STAFF)) return [];
+  return access.clinicIds.length ? access.clinicIds : currentIds;
+}
+
+async function syncProvisionedUser(c, u, id, s, access, groupsKnown, ip) {
+  if (u.account_status !== 'Active') throw new AppError(403, 'ACCOUNT_INACTIVE', 'Your portal account is deactivated. Contact IT.');
+  if (s.syncRolesFromGroups && groupsKnown) {
+    if (!access.roles.length) throw noAccess('Your directory groups no longer give access to the Holiday Dialysis Portal. Contact IT.');
+    const { rows: cur } = await c.query(
+      `SELECT coalesce(array_agg(facility_id::text), '{}') AS ids FROM user_clinic_scope
+        WHERE user_id = $1 AND effective_from <= current_date AND (effective_to IS NULL OR effective_to >= current_date)`, [u.id]);
+    const clinicIds = syncedClinicIds(access, cur[0].ids);
+    await replaceAssignments(c, u.id, access.roles, clinicIds);
+    await audit(c, { user: null, action: 'RolesSyncedFromGroups', entityType: 'User', entityId: u.email, detail: { source: id.source, roles: access.roles, clinics: clinicIds.length }, ip });
+  }
+  await c.query(
+    `UPDATE portal_user SET
+       entra_object_id = CASE WHEN $2 = 'microsoft' AND entra_object_id IS NULL THEN $3 ELSE entra_object_id END,
+       ldap_dn = CASE WHEN $2 = 'ldap' THEN $3 ELSE ldap_dn END,
+       display_name = coalesce(nullif($4, ''), display_name), updated_at = now()
+     WHERE id = $1`, [u.id, id.source, id.externalId, id.name || '']);
+  return u.id;
+}
+
 // ---------------------------------------------------------------- provisioning for directory / Microsoft identities
 /**
  * Find (or create) the portal user for a directory/Microsoft identity, and sync roles from groups when switched on.
@@ -71,87 +128,67 @@ export async function provisionUser(id, s, ip) {
   const groupsKnown = Array.isArray(id.groups);
   const access = groupsKnown ? mapGroupsToAccess(id.groups, await listMappings(), id.source) : { roles: [], clinicIds: [] };
   return withTx(async (c) => {
-    let u = null;
-    if (id.source === 'microsoft' && id.externalId) {
-      u = (await c.query('SELECT id, email, account_status, entra_object_id FROM portal_user WHERE entra_object_id = $1', [id.externalId])).rows[0];
-    }
-    if (!u && id.email) {
-      u = (await c.query('SELECT id, email, account_status, entra_object_id FROM portal_user WHERE lower(email) = lower($1)', [id.email])).rows[0];
-    }
+    const u = await findProvisionedUser(c, id);
     if (!u) {
       if (!s.autoCreateUsers) throw noAccess();
-      if (!id.email) throw noAccess('Your directory account has no email address, so a portal account can’t be created. Contact IT.');
-      if (!access.roles.length) {
-        throw noAccess(groupsKnown ? 'None of your groups give access to the Holiday Dialysis Portal. Ask IT to add you to the right group.'
-          : 'Your group memberships were not sent at sign-in, so a portal account can’t be created. Contact IT.');
-      }
-      const { rows } = await c.query(
-        `INSERT INTO portal_user (email, display_name, entra_object_id, ldap_dn) VALUES ($1, $2, $3, $4) RETURNING id`,
-        [id.email, id.name || id.email, id.source === 'microsoft' ? id.externalId : null, id.source === 'ldap' ? id.externalId : null]);
-      await replaceAssignments(c, rows[0].id, access.roles, access.clinicIds);
-      await audit(c, { user: null, action: 'UserAutoCreated', entityType: 'User', entityId: id.email, detail: { source: id.source, roles: access.roles, clinics: access.clinicIds.length }, ip });
-      return rows[0].id;
+      return insertProvisionedUser(c, id, access, groupsKnown, ip);
     }
-    if (u.account_status !== 'Active') throw new AppError(403, 'ACCOUNT_INACTIVE', 'Your portal account is deactivated. Contact IT.');
-    if (s.syncRolesFromGroups && groupsKnown) {
-      if (!access.roles.length) throw noAccess('Your directory groups no longer give access to the Holiday Dialysis Portal. Contact IT.');
-      const { rows: cur } = await c.query(
-        `SELECT coalesce(array_agg(facility_id::text), '{}') AS ids FROM user_clinic_scope
-          WHERE user_id = $1 AND effective_from <= current_date AND (effective_to IS NULL OR effective_to >= current_date)`, [u.id]);
-      const clinicIds = access.roles.includes(ROLES.CLINIC_STAFF) ? (access.clinicIds.length ? access.clinicIds : cur[0].ids) : [];
-      await replaceAssignments(c, u.id, access.roles, clinicIds);
-      await audit(c, { user: null, action: 'RolesSyncedFromGroups', entityType: 'User', entityId: u.email, detail: { source: id.source, roles: access.roles, clinics: clinicIds.length }, ip });
-    }
-    await c.query(
-      `UPDATE portal_user SET
-         entra_object_id = CASE WHEN $2 = 'microsoft' AND entra_object_id IS NULL THEN $3 ELSE entra_object_id END,
-         ldap_dn = CASE WHEN $2 = 'ldap' THEN $3 ELSE ldap_dn END,
-         display_name = coalesce(nullif($4, ''), display_name), updated_at = now()
-       WHERE id = $1`, [u.id, id.source, id.externalId, id.name || '']);
-    return u.id;
+    return syncProvisionedUser(c, u, id, s, access, groupsKnown, ip);
   });
 }
 
 // ---------------------------------------------------------------- user name + password
+function missingCredentials(uname, password) {
+  if (uname && password) return null;
+  return { username: uname ? undefined : 'Enter your user name.', password: password ? undefined : 'Enter your password.' };
+}
+
+async function localPasswordMatch(uname, password, ldapEnabled) {
+  const { rows } = await query('SELECT id, password_hash, account_status FROM portal_user WHERE lower(email) = lower($1)', [uname]);
+  if (!rows[0]?.password_hash) {
+    if (!ldapEnabled) await burnPasswordCheck(password);
+    return null;
+  }
+  const stored = String(rows[0].password_hash);
+  const ok = stored.startsWith('scrypt$')
+    ? await verifyPassword(password, stored)
+    : (await matchPassword(uname, password))?.id === rows[0].id;
+  if (!ok) return null;
+  if (rows[0].account_status !== 'Active') throw new AppError(403, 'ACCOUNT_INACTIVE', 'This account is deactivated. Contact IT.');
+  return rows[0].id;
+}
+
+async function ldapPasswordMatch(s, uname, password, ip) {
+  let d = null;
+  try {
+    d = await authenticateDirectoryUser(ldapConfigOf(s), uname, String(password));
+  } catch (err) {
+    console.error('[ldap] sign-in error:', oneLine(err.message));
+    throw new AppError(503, 'DIRECTORY_UNAVAILABLE', 'The company directory could not be reached. Try again in a few minutes, or contact IT.');
+  }
+  if (!d) return null;
+  return provisionUser({ source: 'ldap', email: d.email, name: d.name, externalId: d.dn, groups: d.groups }, s, ip);
+}
+
 /** @returns {Promise<{userId:string, method:'local'|'ldap'}>} */
 export async function passwordLogin(username, password, ip) {
   const s = await loadAuthSettings({ withSecrets: true });
   if (!s.localEnabled && !s.ldapEnabled) throw new AppError(403, 'METHOD_DISABLED', 'User name and password sign-in is switched off.');
   const uname = String(username ?? '').trim().slice(0, 256);
-  if (!uname || !password) throw validationFailed({ username: !uname ? 'Enter your user name.' : undefined, password: !password ? 'Enter your password.' : undefined });
+  const missing = missingCredentials(uname, password);
+  if (missing) throw validationFailed(missing);
   const key = uname.toLowerCase();
   await checkLock(key);
 
   let userId = null;
   let method = null;
   if (s.localEnabled) {
-    const { rows } = await query('SELECT id, password_hash, account_status FROM portal_user WHERE lower(email) = lower($1)', [uname]);
-    if (rows[0]?.password_hash) {
-      const stored = String(rows[0].password_hash);
-      const ok = stored.startsWith('scrypt$')
-        ? await verifyPassword(password, stored)
-        : (await matchPassword(uname, password))?.id === rows[0].id;
-      if (ok) {
-        if (rows[0].account_status !== 'Active') throw new AppError(403, 'ACCOUNT_INACTIVE', 'This account is deactivated. Contact IT.');
-        userId = rows[0].id;
-        method = 'local';
-      }
-    } else if (!s.ldapEnabled) {
-      await burnPasswordCheck(password);
-    }
+    userId = await localPasswordMatch(uname, password, s.ldapEnabled);
+    if (userId) method = 'local';
   }
   if (!userId && s.ldapEnabled) {
-    let d = null;
-    try {
-      d = await authenticateDirectoryUser(ldapConfigOf(s), uname, String(password));
-    } catch (err) {
-      console.error('[ldap] sign-in error:', err.message);
-      throw new AppError(503, 'DIRECTORY_UNAVAILABLE', 'The company directory could not be reached. Try again in a few minutes, or contact IT.');
-    }
-    if (d) {
-      userId = await provisionUser({ source: 'ldap', email: d.email, name: d.name, externalId: d.dn, groups: d.groups }, s, ip);
-      method = 'ldap';
-    }
+    userId = await ldapPasswordMatch(s, uname, password, ip);
+    if (userId) method = 'ldap';
   }
   if (!userId) {
     const locked = await recordFailure(key, s);
@@ -190,7 +227,7 @@ export async function microsoftCallback(req, res, ip) {
   try {
     claims = await redeemCode(msConfigOf(s), { code: String(req.query.code), verifier: saved.v, nonce: saved.nonce });
   } catch (err) {
-    console.error('[microsoft] sign-in error:', err.message);
+    console.error('[microsoft] sign-in error:', oneLine(err.message));
     throw new Error(explainMicrosoftError(err));
   }
   if (isGuid(s.msTenantId) && claims.tid && claims.tid.toLowerCase() !== s.msTenantId.toLowerCase()) throw new Error('This Microsoft account belongs to a different organisation.');

@@ -1,6 +1,16 @@
 import { AppError } from '../lib/errors.js';
 import { config } from '../config.js';
 
+function oneLine(s, max = 500) {
+  let out = '';
+  for (const ch of String(s ?? '')) {
+    const c = ch.codePointAt(0);
+    out += (c === 10 || c === 13) ? ' ' : ch;
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
 // Postgres error codes we translate into user-facing messages.
 const PG = { unique: '23505', check: '23514', fk: '23503', privilege: '42501' };
 
@@ -11,7 +21,9 @@ export function notFoundApi(req, res) {
 // eslint-disable-next-line no-unused-vars
 export function errorHandler(err, req, res, _next) {
   if (err instanceof AppError) {
-    return res.status(err.status).json({ error: { code: err.code, message: err.message, ...(err.details || {}) } });
+    const error = { code: err.code, message: err.message };
+    if (err.details) Object.assign(error, err.details);
+    return res.status(err.status).json({ error });
   }
   if (err?.code === 'LIMIT_FILE_SIZE') {
     return res.status(400).json({ error: { code: 'FILE_TOO_LARGE', message: 'File exceeds 10 MB.' } });
@@ -38,6 +50,8 @@ export function errorHandler(err, req, res, _next) {
   if (err?.code === PG.fk) {
     return res.status(400).json({ error: { code: 'BAD_REFERENCE', message: 'A referenced record does not exist.' } });
   }
-  console.error(`[error] ${req.method} ${req.originalUrl}`, err);
-  res.status(500).json({ error: { code: 'INTERNAL', message: 'Something went wrong on the server.', ...(config.isProd ? {} : { debug: err?.message }) } });
+  console.error(`[error] ${oneLine(req.method)} ${oneLine(req.originalUrl)}`, err);
+  const error = { code: 'INTERNAL', message: 'Something went wrong on the server.' };
+  if (!config.isProd) error.debug = err?.message;
+  res.status(500).json({ error });
 }
