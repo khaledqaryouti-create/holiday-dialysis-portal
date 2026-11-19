@@ -159,7 +159,7 @@ function stripTags(s) {
     if (s[i] !== '<') { out += s[i]; continue; }
     const gt = s.indexOf('>', i + 1);
     if (gt < 0) break;
-    i = gt;
+    i += gt - i;
   }
   return out;
 }
