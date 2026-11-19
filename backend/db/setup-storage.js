@@ -22,7 +22,10 @@ const headers = { apikey: key, ...(key.startsWith('sb_') ? {} : { Authorization:
 const existing = await fetch(`${supabaseUrl}/storage/v1/bucket/${bucket}`, { headers });
 if (existing.ok) {
   const b = await existing.json();
-  console.log(`[storage] bucket "${oneLine(bucket)}" already exists (public: ${b.public}).${b.public ? ' Make it PRIVATE in the Supabase dashboard!' : ''}`);
+  const open = b.public === true;
+  const publicity = open ? 'true' : 'false';
+  const warning = open ? ' Make it PRIVATE in the Supabase dashboard!' : '';
+  console.log(`[storage] bucket "${oneLine(bucket)}" already exists (public: ${publicity}).${warning}`);
 } else {
   const res = await fetch(`${supabaseUrl}/storage/v1/bucket`, {
     method: 'POST', headers,
