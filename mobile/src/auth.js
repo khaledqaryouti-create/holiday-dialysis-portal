@@ -21,7 +21,7 @@ export function AuthProvider({ children }) {
       try { const cfg = await api.get('/api/auth/config'); setState((s) => ({ ...s, options: cfg.options })); } catch { /* offline */ }
       await loadToken();
       await refresh();
-    })();
+    })().catch(() => {});
   }, [refresh]);
 
   const signIn = useCallback(async (username, password, clinicId) => {
