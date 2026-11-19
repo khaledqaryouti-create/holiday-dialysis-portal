@@ -4,8 +4,27 @@ import { DEFAULT_FIELD_RULES, isRequired, isHidden } from './formRules.js';
 import { DEST, DOC_TYPES, MAX_FILE_BYTES, REASON_MIN, REASON_MAX, CONFIRMED_DATES_TOLERANCE_DAYS } from './constants.js';
 import { isIsoDate, addDays, fmtRange } from './dates.js';
 
-export const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-export const isEmail = (s) => typeof s === 'string' && EMAIL_RE.test(s.trim());
+function hasSpace(s) {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 32 || c === 9 || c === 10 || c === 11 || c === 12 || c === 13 || c === 160 || c === 0xfeff
+      || c === 0x1680 || c === 0x2028 || c === 0x2029 || c === 0x202f || c === 0x205f || c === 0x3000
+      || (c >= 0x2000 && c <= 0x200a)) return true;
+  }
+  return false;
+}
+
+/** One @, a dot in the domain, no spaces, at most 254 characters. */
+export function isEmail(s) {
+  if (typeof s !== 'string') return false;
+  const t = s.trim();
+  if (!t || t.length > 254 || hasSpace(t)) return false;
+  const at = t.indexOf('@');
+  if (at <= 0 || t.indexOf('@', at + 1) !== -1) return false;
+  const domain = t.slice(at + 1);
+  const dot = domain.indexOf('.');
+  return dot > 0 && dot < domain.length - 1;
+}
 const blank = (v) => v == null || String(v).trim() === '';
 
 export function validateIdentifier(type, value) {
