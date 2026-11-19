@@ -5,7 +5,7 @@ import { validateAuthSettings, mapGroupsToAccess, DEFAULT_LDAP_FILTER } from '..
 import { ROLES } from '../domain/constants.js';
 import { validationFailed, notFound, badRequest } from '../lib/errors.js';
 import { testDirectory, authenticateDirectoryUser, explainLdapError } from '../lib/ldap.js';
-import { discover, explainMicrosoftError } from '../lib/oidc.js';
+import { discover, explainMicrosoftError, requestMicrosoftToken } from '../lib/oidc.js';
 import { audit } from './audit.js';
 
 const isUuid = (s) => /^[0-9a-f-]{36}$/i.test(String(s));
@@ -213,11 +213,9 @@ export async function testMicrosoft(admin, body, ip) {
   const cfg = msConfigOf(s);
   let result;
   try {
-    const { doc } = await discover(cfg.tenantId);
-    const res = await fetch(doc.token_endpoint, {
-      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ client_id: cfg.clientId, client_secret: cfg.clientSecret, grant_type: 'client_credentials', scope: 'https://graph.microsoft.com/.default' }),
-      signal: AbortSignal.timeout(15_000),
+    await discover(cfg.tenantId);
+    const res = await requestMicrosoftToken(cfg.tenantId, {
+      client_id: cfg.clientId, client_secret: cfg.clientSecret, grant_type: 'client_credentials', scope: 'https://graph.microsoft.com/.default',
     });
     const j = await res.json().catch(() => ({}));
     result = res.ok

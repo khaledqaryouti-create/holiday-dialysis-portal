@@ -6,6 +6,7 @@ import { createLocalJWKSet, jwtVerify } from 'jose';
 
 const DISCOVERY_TTL = 60 * 60 * 1000;
 const MS_ORIGIN = 'https://login.microsoftonline.com';
+const ALLOWED_LOGIN_ORIGINS = ['https://login.microsoftonline.com'];
 const BAD_ENDPOINT = () => Object.assign(new Error('Microsoft sign-in address is not on login.microsoftonline.com.'), { code: 'BAD_ENDPOINT' });
 const cache = new Map(); // tenant → { at, doc, jwks }
 
@@ -86,14 +87,22 @@ function safeTenant(tenant) {
 }
 
 /** Server requests use the literal login host, a checked path, and no redirects. */
-async function fetchMicrosoft(pathOrUrl, init = {}) {
-  const raw = String(pathOrUrl);
-  const absolute = raw.startsWith('/') ? `https://login.microsoftonline.com${raw}` : raw;
-  const pinned = pinnedMicrosoftUrl(absolute);
-  const path = safeMicrosoftPath(pinned.slice(MS_ORIGIN.length));
-  const target = `https://login.microsoftonline.com${path}`;
-  if (new URL(target).origin !== 'https://login.microsoftonline.com') throw BAD_ENDPOINT();
-  return fetch(target, { ...init, redirect: 'error' });
+async function fetchMicrosoft(path, init = {}) {
+  const origin = 'https://login.microsoftonline.com';
+  if (!ALLOWED_LOGIN_ORIGINS.includes(origin)) throw BAD_ENDPOINT();
+  const checked = safeMicrosoftPath(String(path));
+  return fetch(origin + checked, { ...init, redirect: 'error' });
+}
+
+/** Client-credentials and authorization-code posts go to the fixed token path for this tenant. */
+export async function requestMicrosoftToken(tenant, fields, timeoutMs = 15_000) {
+  const safe = safeTenant(tenant);
+  return fetchMicrosoft(`/${safe}/oauth2/v2.0/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(fields),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
 }
 
 export async function discover(tenant) {
@@ -103,14 +112,11 @@ export async function discover(tenant) {
   const res = await fetchMicrosoft(`/${safe}/v2.0/.well-known/openid-configuration`, { signal: AbortSignal.timeout(10_000) });
   if (!res.ok) throw Object.assign(new Error(`Microsoft did not recognise the tenant "${tenant}" (HTTP ${res.status}).`), { code: 'TENANT_NOT_FOUND' });
   const doc = await res.json();
-  const authorization_endpoint = pinnedMicrosoftUrl(doc.authorization_endpoint);
-  const token_endpoint = pinnedMicrosoftUrl(doc.token_endpoint);
-  const jwks_uri = pinnedMicrosoftUrl(doc.jwks_uri);
-  const keys = await fetchMicrosoft(jwks_uri, { signal: AbortSignal.timeout(10_000) });
+  const keys = await fetchMicrosoft(`/${safe}/discovery/v2.0/keys`, { signal: AbortSignal.timeout(10_000) });
   if (!keys.ok) throw Object.assign(new Error('Microsoft did not return signing keys.'), { code: 'BAD_ENDPOINT' });
   const entry = {
     at: Date.now(),
-    doc: { ...doc, authorization_endpoint, token_endpoint, jwks_uri },
+    doc,
     jwks: createLocalJWKSet(await keys.json()),
   };
   cache.set(safe, entry);
@@ -136,14 +142,9 @@ export async function authorizeUrl(s, { state, nonce, challenge }) {
 /** Exchange the code and verify the id_token. Returns the trusted claims. */
 export async function redeemCode(s, { code, verifier, nonce }) {
   const { doc, jwks } = await discover(s.tenantId);
-  const res = await fetchMicrosoft(doc.token_endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: s.clientId, client_secret: s.clientSecret, grant_type: 'authorization_code', code,
-      redirect_uri: s.redirectUri, code_verifier: verifier, scope: 'openid profile email',
-    }),
-    signal: AbortSignal.timeout(15_000),
+  const res = await requestMicrosoftToken(s.tenantId, {
+    client_id: s.clientId, client_secret: s.clientSecret, grant_type: 'authorization_code', code,
+    redirect_uri: s.redirectUri, code_verifier: verifier, scope: 'openid profile email',
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok || !body.id_token) {
