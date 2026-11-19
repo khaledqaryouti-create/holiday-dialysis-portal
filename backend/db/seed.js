@@ -5,9 +5,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pool } from '../src/db/pool.js';
 import { config, assertConfig } from '../src/config.js';
+import { validatePassword } from '../src/domain/validation.js';
 
-/** Development password for seeded accounts. Not used by the running portal or the React app. */
-const DEV_SAMPLE_PASSWORD = 'Holiday1!';
+/** Development sign-in value for seeded accounts. Not used by the running portal or the React app. */
+function developmentSignIn() {
+  const signIn = process.env.SEED_PASSWORD;
+  if (validatePassword(signIn, { required: true })) {
+    throw new Error('Set SEED_PASSWORD to a development sign-in password of 8 to 72 characters.');
+  }
+  return signIn;
+}
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const reset = process.argv.includes('--reset');
@@ -19,11 +26,11 @@ const TABLES = [
   'notification_template', 'sla_rule',
 ];
 
-/** Sets the development password on accounts that do not have one yet. Does not change other data. */
-async function fillPasswords(client) {
+/** Sets the development sign-in value on accounts that do not have one yet. Does not change other data. */
+async function fillPasswords(client, signIn) {
   const { rowCount } = await client.query(
     `UPDATE portal_user SET password_hash = crypt($1, gen_salt('bf')) WHERE password_hash IS NULL`,
-    [DEV_SAMPLE_PASSWORD],
+    [signIn],
   );
   return rowCount;
 }
@@ -31,11 +38,12 @@ async function fillPasswords(client) {
 async function main() {
   assertConfig({ needServer: false });
   if (config.isProd) throw new Error('Refusing to seed when NODE_ENV=production.');
+  const signIn = developmentSignIn();
   const client = await pool.connect();
   try {
     const { rows } = await client.query('SELECT count(*)::int AS n FROM portal_user');
     if (rows[0].n > 0 && !reset) {
-      const n = await fillPasswords(client);
+      const n = await fillPasswords(client, signIn);
       console.log(n
         ? `[seed] database already has users — left the data in place and set the development password on ${n} account(s).`
         : '[seed] database already has users — skipped. Use `npm run db:seed -- --reset` to wipe and reseed (development only).');
@@ -49,10 +57,10 @@ async function main() {
     }
     await client.query(`SELECT set_config('app.field_key', $1, true)`, [config.fieldKey]);
     await client.query(sql);
-    const passwords = await fillPasswords(client);
+    const filled = await fillPasswords(client, signIn);
     await client.query('COMMIT');
     const counts = await client.query(`SELECT (SELECT count(*) FROM portal_user)::int AS users, (SELECT count(*) FROM holiday_dialysis_request)::int AS requests`);
-    console.log(`[seed] done: ${counts.rows[0].users} users, ${counts.rows[0].requests} requests, development password set on ${passwords} account(s)`);
+    console.log(`[seed] done: ${counts.rows[0].users} users, ${counts.rows[0].requests} requests, development password set on ${filled} account(s)`);
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
     throw e;
