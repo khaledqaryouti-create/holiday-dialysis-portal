@@ -19,13 +19,26 @@ export function issueSession(res, userId, method = 'dev', clinicId = null, expir
   return token; // the mobile app receives this and sends it as "Authorization: Bearer <token>"
 }
 
+function isHeaderSpace(code) {
+  return code === 9 || code === 10 || code === 13 || code === 32;
+}
+
+/** The value after "Bearer" and its separating spaces, or null. */
+function bearerToken(header) {
+  const value = String(header || '');
+  if (value.length < 8 || value.slice(0, 6).toLowerCase() !== 'bearer') return null;
+  let i = 6;
+  if (!isHeaderSpace(value.charCodeAt(i))) return null;
+  while (i < value.length && isHeaderSpace(value.charCodeAt(i))) i += 1;
+  const token = value.slice(i).trim();
+  return token || null;
+}
+
 /** Session token from the cookie (web) or the Authorization: Bearer header (mobile app). */
 function sessionToken(req) {
   const cookie = req.cookies?.[config.auth.cookieName];
   if (cookie) return cookie;
-  const auth = req.get('authorization') || '';
-  const m = auth.match(/^Bearer\s+(.+)$/i);
-  return m ? m[1].trim() : null;
+  return bearerToken(req.get('authorization'));
 }
 
 export function clearSession(res) {
